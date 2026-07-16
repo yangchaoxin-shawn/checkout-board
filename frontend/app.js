@@ -529,14 +529,30 @@ function fillTask(kind,list){
 async function renderReport(){
   const box=$('#report');
   let rows=[];
-  if(curFilterMember){
-    // member view across days
-    const mv=(await S.get('member:'+curFilterMember,true))||[];
-    rows=mv.filter(c=>!curFilterDate||c.date===curFilterDate).sort((a,b)=>b.ts-a.ts);
-    if(!curFilterDate) rows=mv.sort((a,b)=>b.ts-a.ts);
+  if(curFilterDate){
+    // 按日期筛选：从当天的 day: 数组读
+    const day=(dayCache[curFilterDate]||await loadDay(curFilterDate))||[];
+    rows = curFilterMember
+      ? day.filter(c=>c.name===curFilterMember)
+      : day.slice();
+  }else if(curFilterMember){
+    // 跨日期按成员筛选：扫描所有 day: 数组过滤
+    const allDayKeys=await S.list('day:',true);
+    const all=[];
+    for(const k of allDayKeys){
+      const arr=(await S.get(k,true))||[];
+      for(const item of arr) if(item.name===curFilterMember) all.push(item);
+    }
+    rows=all;
   }else{
-    rows=(dayCache[curFilterDate]||await loadDay(curFilterDate)).slice();
+    // 全部成员、全部日期：合并 dayCache
+    const allDayKeys=Object.keys(dayCache);
+    for(const k of allDayKeys){
+      const arr=dayCache[k]||[];
+      for(const item of arr) rows.push(item);
+    }
   }
+  rows.sort((a,b)=>(b.ts||0)-(a.ts||0));
   if(!rows.length){
     const isToday=curFilterDate===todayStr()&&!curFilterMember;
     box.innerHTML=`<div class="empty-report"><div class="em">🦈</div>${
