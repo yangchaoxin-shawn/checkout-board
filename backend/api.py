@@ -414,7 +414,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _api_set(self, body):
         if not self._check_auth():
             return self._json({"ok": False, "error": "unauthorized"}, 401)
-        key = body.get("key", "")
+        key = sanitize_key(body.get("key", ""))
         value = body.get("value")
         if not key:
             return self._json({"ok": False, "error": "missing key"}, 400)
@@ -439,7 +439,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _api_delete(self, qs):
         if not self._check_auth():
             return self._json({"ok": False, "error": "unauthorized"}, 401)
-        key = qs.get("key", [""])[0]
+        key = sanitize_key(qs.get("key", [""])[0])
         if not key:
             return self._json({"ok": False, "error": "missing key"}, 400)
         db_delete(key)
