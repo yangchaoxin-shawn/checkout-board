@@ -66,6 +66,30 @@
 - 基础打卡 UI 与数据展示
 - 暗色主题，vibe coding 产物
 
+## v1.1 (2026-07-16) — 安全加固 + 数据链重构
+
+### 安全加固
+
+- **密码存储迁移至 SQLite**：密码由服务端 SQLite 存储，超管可在设置面板中运行时修改，无需改代码/重新部署
+- **Token 鉴权强制**：`_check_auth()` 移除默认密码绕过，所有写操作强制 Bearer Token
+- **门禁验证重构**：优先服务端验证，区分"密码错误"和"服务不可达"
+- **全链路补 Token**：`SHARED.set`、`SHARED.del`、`syncFallbackData` 均补充 Authorization header
+- **key 入口清洗**：`_api_set`/`_api_delete` 入口 `sanitize_key()` 过滤特殊字符
+- **导出 Token 鉴权**：`/api/export-excel` 和 `/api/export` 支持 Token
+
+### 数据链重构
+
+- **新增 `POST /api/checkin`**：原子提交，SQLite 事务内完成幂等检查 + day 追加 + counts 更新
+- **新增 `POST /api/checkin/delete`**：对称原子删除，事务内 day 移除 + counts 减
+- **counts 由服务端原子维护**，前端不再 counts++
+- **member: 不再独立落盘**，筛选器改为从 `day:` 动态过滤
+- **/api/checkin 网络失败降级**到 localStorage 兜底
+
+### 工程文档
+
+- 新增 `PROJECT_WISDOM.md`（设计原则）、`ENGINEERING_CHECKLIST.md`（检查清单）、`VIBE_CODING_RETROSPECTIVE.md`（复盘）
+- 引入 Git + Conventional Commits + 分支策略
+
 ---
 
 ## 关键交付物

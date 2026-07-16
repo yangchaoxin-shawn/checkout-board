@@ -16,6 +16,10 @@ Excel 导出改用 Token（Authorization header）鉴权。
 **变更：** 移除了 `_check_auth()` 中默认密码绕过逻辑。所有写操作强制要求有效的 Bearer Token。
 **涉及文件：** `backend/api.py`、`backend/deploy/Dockerfile`
 
+### ■ ✅ Key 入口清洗（防注入）
+**变更：** `_api_set`/`_api_delete` 入口处调用 `sanitize_key()` 过滤特殊字符，阻止带注入特征的脏 key 入库。
+**涉及文件：** `backend/api.py`
+
 ### ■ ✅ 打卡幂等性（防重复提交）
 **变更：** 前端按钮防抖（1.5s disabled）+ 后端校验同人+同日+同类型+同内容(result)是否已存在，重复返回 409。
 三动作类型（牵引客户/吸引伙伴/两者都有）均受保护。
