@@ -1010,6 +1010,39 @@ async function changePassword(){
   }
 }
 
+/* ============ 修改超管密码 ============ */
+async function changeAdminPassword(){
+  if(!isSuperAdmin()){ toast('仅超级管理员可以修改超管密码'); return; }
+  if(!isAdminVerified()){
+    requireAdminAuth(function(){ changeAdminPassword(); });
+    return;
+  }
+  var newPw=$('#sAdminPw').value.trim();
+  if(newPw.length<2){ $('#sAdminPwMsg').textContent='密码至少 2 个字符'; $('#sAdminPwMsg').style.color='var(--danger)'; return; }
+  var token=getStoredToken();
+  if(!token){ $('#sAdminPwMsg').textContent='请先通过门禁登录'; $('#sAdminPwMsg').style.color='var(--danger)'; return; }
+  try{
+    var base=SERVER_URL.replace(/\/+$/,'');
+    var r=await fetch(base+'/api/admin/password', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({password:newPw})
+    });
+    var d=await r.json();
+    if(d && d.ok){
+      $('#sAdminPw').value='';
+      $('#sAdminPwMsg').textContent='✅ 超管密码修改成功';
+      $('#sAdminPwMsg').style.color='var(--success)';
+      toast('超管密码已修改');
+    }else{
+      $('#sAdminPwMsg').textContent='修改失败：'+(d.error||'未知错误');
+      $('#sAdminPwMsg').style.color='var(--danger)';
+    }
+  }catch(e){
+    $('#sAdminPwMsg').textContent='网络错误，请重试';
+    $('#sAdminPwMsg').style.color='var(--danger)';
+  }
+}
+
 /* ============ 成员管理（超级管理员）============ */
 function openMembers(){
   requireAdminAuth(function(){
@@ -1121,6 +1154,9 @@ function wire(){
   // 密码修改
   var pwSaveBtn=$('#sPwSave'); if(pwSaveBtn) pwSaveBtn.onclick=changePassword;
   var pwInp=$('#sPassword'); if(pwInp) pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
+  // 超管密码修改
+  var apwSaveBtn=$('#sAdminPwSave'); if(apwSaveBtn) apwSaveBtn.onclick=changeAdminPassword;
+  var apwInp=$('#sAdminPw'); if(apwInp) apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changeAdminPassword(); });
   // 成员管理
   const addMemberBtn=$('#mAddMember'); if(addMemberBtn) addMemberBtn.onclick=addMember;
   const mNewInp=$('#mNewMember'); if(mNewInp) mNewInp.addEventListener('keydown',e=>{ if(e.key==='Enter') addMember(); });

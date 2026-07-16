@@ -302,6 +302,15 @@
       </div>
       <div id="sPwMsg" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
     </div>
+    <div class="field" style="margin-top:10px">
+      <label>修改超管密码</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="sAdminPw" placeholder="输入新超管密码" maxlength="20" style="flex:1"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <button class="btn ghost" id="sAdminPwSave" style="min-height:44px;white-space:nowrap">🔑 修改</button>
+      </div>
+      <div id="sAdminPwMsg" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
+    </div>
     <div class="actions">
       <button class="btn cancel" data-close>取消</button>
       <button class="btn solid-go" id="sSave">保存目标</button>
