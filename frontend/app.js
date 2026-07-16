@@ -132,7 +132,10 @@ async function syncFallbackData(){
       try{
         const v = JSON.parse(localStorage.getItem(k));
         await fetch(`${SERVER_URL}/api/data`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method:'POST', headers:{
+            'Content-Type':'application/json',
+            'Authorization':'Bearer '+(getStoredToken())
+          },
           body: JSON.stringify({key:realKey, value:v})
         });
         localStorage.removeItem(k);  // 同步成功后清除本地备份
@@ -173,7 +176,10 @@ const SHARED = {
         // 尝试写服务端
         try{
           const r = await fetch(`${SERVER_URL}/api/data`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
+            method:'POST', headers:{
+              'Content-Type':'application/json',
+              'Authorization':'Bearer '+(getStoredToken())
+            },
             body: JSON.stringify({key:k, value:v})
           });
           const d = await r.json();
@@ -211,7 +217,10 @@ const SHARED = {
     } },
   async del(k){ try{
       if(BACKEND_MODE==='server'){
-        const r = await fetch(`${SERVER_URL}/api/data?key=${encodeURIComponent(k)}`, {method:'DELETE'});
+        const r = await fetch(`${SERVER_URL}/api/data?key=${encodeURIComponent(k)}`, {
+          method:'DELETE',
+          headers:{'Authorization':'Bearer '+(getStoredToken())}
+        });
         const d = await r.json();
         return d && d.ok;
       }
