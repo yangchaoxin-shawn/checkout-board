@@ -22,8 +22,26 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "checkin.db"
-PASSWORD = os.environ.get("CHECKIN_PASSWORD", "365")
+PASSWORD_INIT = os.environ.get("CHECKIN_PASSWORD", "365")
 SECRET = os.environ.get("CHECKIN_SECRET", "checkin-secret-2026")
+
+# ── 密码存储（SQLite 优先，支持运行时修改）──
+def _init_password():
+    """首次启动时将环境变量密码写入 SQLite，供 get_gate_password() 使用"""
+    if not db_get("_password"):
+        db_set("_password", PASSWORD_INIT)
+        print(f"[init] 门禁密码已写入存储（{PASSWORD_INIT[:2]}***）")
+
+def get_gate_password() -> str:
+    """获取当前门禁密码，优先从 SQLite 读取"""
+    stored = db_get("_password")
+    if stored and isinstance(stored, str):
+        return stored
+    return PASSWORD_INIT
+
+def set_gate_password(new_pw: str) -> bool:
+    """更新门禁密码（运行时生效，无需重启）"""
+    return db_set("_password", new_pw)
 
 # ── SQLite 存储层 ──
 def get_db():
@@ -295,6 +313,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._api_export_excel(qs); return True
         if path == "/api/auth" and self.command == "GET":
             self._api_auth(qs); return True
+        if path == "/api/auth/check":
+            self._api_check_token(); return True
         return False
 
     def _json(self, data, status=200):
@@ -331,6 +351,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._api_set(body)
         if parsed.path == "/api/auth":
             return self._api_login(body)
+        if parsed.path == "/api/password":
+            return self._api_change_password(body)
 
         self._json({"error": "not found"}, 404)
 
@@ -345,8 +367,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     # ── 鉴权 ──
     def _check_auth(self) -> bool:
-        if PASSWORD == "365":
-            return True
         auth = self.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             return verify_token(auth[7:])
@@ -363,17 +383,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def _api_auth(self, qs):
         pw = qs.get("password", [""])[0]
-        if pw == PASSWORD:
+        if pw == get_gate_password():
             self._json({"ok": True, "token": generate_token()})
         else:
             self._json({"ok": False, "error": "wrong password"}, 401)
 
     def _api_login(self, body):
         pw = body.get("password", "")
-        if pw == PASSWORD:
+        if pw == get_gate_password():
             self._json({"ok": True, "token": generate_token()})
         else:
             self._json({"ok": False, "error": "wrong password"}, 401)
+
+    def _api_check_token(self):
+        """验证当前 Authorization header 中的 Token 是否有效"""
+        ok = self._check_auth()
+        self._json({"ok": ok})
 
     def _api_get(self, qs):
         key = qs.get("key", [""])[0]
@@ -389,6 +414,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         value = body.get("value")
         if not key:
             return self._json({"ok": False, "error": "missing key"}, 400)
+
+        # 打卡提交幂等性校验：同人 + 同日 + 同类型 + 同内容 → 拒绝
+        if key.startswith("day:"):
+            existing = db_get(key) or []
+            existing_ids = {item.get("id") for item in existing}
+            incoming = value if isinstance(value, list) else [value]
+            new_items = [item for item in incoming if item.get("id") not in existing_ids]
+            for new_item in new_items:
+                for ex_item in existing:
+                    if (ex_item.get("name") == new_item.get("name")
+                            and ex_item.get("date") == new_item.get("date")
+                            and ex_item.get("type") == new_item.get("type")
+                            and ex_item.get("result") == new_item.get("result")):
+                        return self._json({"ok": False, "error": "duplicate check-in", "dup": True}, 409)
+
         db_set(key, value)
         self._json({"ok": True})
 
@@ -407,9 +447,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._json({"keys": keys})
 
     def _api_export(self, qs):
-        pw = qs.get("password", [""])[0]
-        if pw != PASSWORD:
-            return self._json({"error": "wrong password"}, 401)
+        # 优先 Token 鉴权，其次密码查询参数（向后兼容）
+        if not self._check_auth():
+            pw = qs.get("password", [""])[0]
+            if pw != get_gate_password():
+                return self._json({"error": "unauthorized"}, 401)
         all_data = {}
         for key in db_list():
             all_data[key] = db_get(key)
@@ -422,9 +464,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(all_data, ensure_ascii=False, indent=2).encode())
 
     def _api_export_excel(self, qs):
-        pw = qs.get("password", [""])[0]
-        if pw != PASSWORD:
-            return self._json({"error": "wrong password"}, 401)
+        # 优先 Token 鉴权，其次密码查询参数（向后兼容）
+        if not self._check_auth():
+            pw = qs.get("password", [""])[0]
+            if pw != get_gate_password():
+                return self._json({"error": "unauthorized"}, 401)
 
         cfg = db_get("config") or {}
         goal = _campaign_goal(cfg)
@@ -478,6 +522,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(xlsx)
 
+    def _api_change_password(self, body):
+        """超级管理员修改门禁密码（需要有效 Token 鉴权）"""
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, 401)
+        new_pw = body.get("password", "")
+        if len(new_pw) < 2:
+            return self._json({"ok": False, "error": "password too short"}, 400)
+        set_gate_password(new_pw)
+        # 修改后立即回收旧 Token，返回新 Token
+        new_token = generate_token()
+        print(f"[auth] 门禁密码已修改（{new_pw[:2]}***）")
+        self._json({"ok": True, "token": new_token})
+
 
 def _campaign_goal(cfg):
     from datetime import date
@@ -501,7 +558,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.password:
-        PASSWORD = args.password
+        PASSWORD_INIT = args.password
 
     json_files = list(DATA_DIR.glob("*.json"))
     if json_files:
@@ -512,11 +569,15 @@ if __name__ == "__main__":
         db_set("roster:admin", {"name": "admin", "ts": int(datetime.now().timestamp() * 1000)})
         print("[init] 已创建默认管理员 admin")
 
+    # 初始化门禁密码（若 SQLite 中尚无则从环境变量/默认值写入）
+    _init_password()
+
     server = http.server.HTTPServer((args.host, args.port), Handler)
     display_host = "localhost" if args.host in ("0.0.0.0", "") else args.host
     print(f"[checkin] 纯 API 服务运行在 http://{display_host}:{args.port}")
     print(f"[checkin] API:  http://{display_host}:{args.port}/api/health")
-    print(f"[checkin] 密码: {PASSWORD[:2]}***（通过 CHECKIN_PASSWORD 环境变量或 --password 设置）")
+    pw = get_gate_password()
+    print(f"[checkin] 密码: {pw[:2]}***（可通过设置面板运行时修改）")
     print(f"[checkin] 存储: SQLite ({DB_PATH})")
     try:
         server.serve_forever()

@@ -3,7 +3,7 @@
 "use strict";
 
 /* ============ 门禁登录 ============ */
-var KEY='bb_gate_ok', KEY_EXP='bb_gate_exp';
+var KEY='bb_gate_ok', KEY_EXP='bb_gate_exp', KEY_TOKEN='bb_gate_token';
 var gateOv=document.getElementById('gateOverlay'),
     gateInp=document.getElementById('gateInput'),
     gateGo=document.getElementById('gateGo'),
@@ -24,8 +24,32 @@ function gateRemember(){
 }
 function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.focus();}catch(e){}},60); }
 function gatePass(){ gateOv.classList.add('gate-hide'); document.body.style.overflow=''; }
-function gateTry(){
-  if(gateInp.value.trim()===PW){ gateRemember(); gatePass(); }
+// 向服务端验证密码并获取 Token
+async function gateServerAuth(pw){
+  if(BACKEND_MODE!=='server' || !SERVER_URL) return false;
+  try{
+    var r=await fetch(SERVER_URL+'/api/auth?password='+encodeURIComponent(pw), {cache:'no-store'});
+    var d=await r.json();
+    if(d && d.ok && d.token){
+      try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
+// 获取存储的 Token（用于导出等敏感操作）
+function getStoredToken(){
+  try{ return localStorage.getItem(KEY_TOKEN) || ''; }catch(e){ return ''; }
+}
+async function gateTry(){
+  var pw=gateInp.value.trim();
+  // server 模式：优先服务端验证
+  if(BACKEND_MODE==='server' && SERVER_URL){
+    var ok=await gateServerAuth(pw);
+    if(ok){ gateRemember(); gatePass(); return; }
+  }
+  // 服务端不可用或非 server 模式：回退本地验证
+  if(pw===PW){ gateRemember(); gatePass(); }
   else{ gateErr.classList.add('show'); gateCard.classList.remove('gate-shake'); void gateCard.offsetWidth; gateCard.classList.add('gate-shake'); gateInp.value=''; try{gateInp.focus();}catch(e){} }
 }
 gateGo.addEventListener('click',gateTry);
@@ -147,7 +171,14 @@ const SHARED = {
             localStorage.removeItem(LS_FALLBACK_PREFIX + k);  // 成功则清除兜底
             return true;
           }
-        }catch(e){}
+          // 服务端返回明确的错误（如 409 重复打卡）→ 抛出异常让调用方处理
+          if(d && d.dup){
+            throw d;  // 包含 {dup:true, error:"..."}
+          }
+        }catch(e){
+          // 已经是 JS Error 或 dup 对象，向上传播
+          if(e && e.dup) throw e;
+        }
         // 服务端失败：保留本地兜底，标记状态
         updateConnBar();
         return true;  // 本地已存，不报失败
@@ -640,15 +671,34 @@ function openCheckin(preset,lock){
   $('#ciResult').value=''; $('#ciNext').value=''; $('#ciErr').classList.remove('show');
   $('#checkinOverlay').classList.add('on'); setTimeout(()=>$('#ciResult').focus(),200);
 }
+let ciSubmitting=false;
 async function submitCheckin(){
+  // 按钮防抖：避免重复提交
+  if(ciSubmitting) return;
   const result=$('#ciResult').value.trim();
   if(!ciType||!result){ $('#ciErr').classList.add('show'); return; }
+  ciSubmitting=true;
+  const submitBtn=$('#ciSubmit');
+  submitBtn.disabled=true;
+  submitBtn.textContent='提交中...';
   const ds=todayStr();
   const item={ id:'ck_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
     name:me.name, avatar:me.avatar, date:ds, type:ciType, result,
     status:ciStatus, next:$('#ciNext').value.trim(), ts:Date.now() };
   // 1) day array  2) member array  3) counts  4) ensure roster
-  dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
+  try{
+    dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
+  }catch(e){
+    // 服务端返回 409 重复打卡
+    if(e && e.dup){
+      toast('⚠️ 该打卡记录已存在，请勿重复提交');
+      ciSubmitting=false;
+      submitBtn.disabled=false;
+      submitBtn.textContent='🦈 提交今日战果';
+      return;
+    }
+    throw e;
+  }
   await appendById('member:'+me.name,item);
   if(ciType==='牵引客户'||ciType==='两者都有') counts.customers++;
   if(ciType==='吸引伙伴'||ciType==='两者都有') counts.partners++;
@@ -657,6 +707,11 @@ async function submitCheckin(){
   $('#checkinOverlay').classList.remove('on');
   await renderAll();
   toast('战果已提交 🦈 全组都看到了');
+  setTimeout(function(){
+    ciSubmitting=false;
+    submitBtn.disabled=false;
+    submitBtn.textContent='🦈 提交今日战果';
+  }, 1000);
 }
 async function delCheckin(id,date){
   if(!confirm('删除我的这条打卡记录？')) return;
@@ -709,12 +764,20 @@ async function exportCSV(){
   try{
     toast('正在生成报表…');
     const base=SERVER_URL.replace(/\/+$/,'');
-    const resp=await fetch(`${base}/api/export-excel?password=${encodeURIComponent(PW)}`);
+    // 优先 Token 鉴权，无 Token 时回退密码参数（向后兼容）
+    const token=getStoredToken();
+    var url=base+'/api/export-excel';
+    var opts={};
+    if(token){
+      opts.headers={'Authorization':'Bearer '+token};
+    }else{
+      url+='?password='+encodeURIComponent(PW);
+    }
+    const resp=await fetch(url, opts);
     if(!resp.ok) throw new Error('export failed');
     const blob=await resp.blob();
-    const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href=url;
+    a.href=URL.createObjectURL(blob);
     a.download='作战打卡数据_'+todayStr()+'.xlsx';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url),1500);
@@ -773,6 +836,38 @@ async function saveSettings(){
     }
   }else{
     toast('设置已保存');
+  }
+}
+
+/* ============ 修改门禁密码（超管权限）============ */
+async function changePassword(){
+  if(!isSuperAdmin()){ toast('仅超级管理员可以修改密码'); return; }
+  var newPw=$('#sPassword').value.trim();
+  if(newPw.length<2){ $('#sPwMsg').textContent='密码至少 2 个字符'; $('#sPwMsg').style.color='var(--danger)'; return; }
+  var token=getStoredToken();
+  if(!token){ $('#sPwMsg').textContent='请先通过门禁登录获取权限'; $('#sPwMsg').style.color='var(--danger)'; return; }
+  try{
+    const base=SERVER_URL.replace(/\/+$/,'');
+    var r=await fetch(base+'/api/password', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({password:newPw})
+    });
+    var d=await r.json();
+    if(d && d.ok){
+      // 更新本地存储的 Token 和门禁缓存
+      if(d.token) try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
+      try{ localStorage.setItem(KEY,'1'); localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); }catch(e){}
+      $('#sPassword').value='';
+      $('#sPwMsg').textContent='✅ 密码修改成功';
+      $('#sPwMsg').style.color='var(--success)';
+      toast('门禁密码已修改，新密码即时生效');
+    }else{
+      $('#sPwMsg').textContent='修改失败：'+(d.error||'未知错误');
+      $('#sPwMsg').style.color='var(--danger)';
+    }
+  }catch(e){
+    $('#sPwMsg').textContent='网络错误，请重试';
+    $('#sPwMsg').style.color='var(--danger)';
   }
 }
 
@@ -884,6 +979,9 @@ function wire(){
   $('#sSave').onclick=saveSettings;
   $('#sStart').addEventListener('change',updateGoalPreview);
   $('#sDate').addEventListener('change',updateGoalPreview);
+  // 密码修改
+  var pwSaveBtn=$('#sPwSave'); if(pwSaveBtn) pwSaveBtn.onclick=changePassword;
+  var pwInp=$('#sPassword'); if(pwInp) pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
   // 成员管理
   const addMemberBtn=$('#mAddMember'); if(addMemberBtn) addMemberBtn.onclick=addMember;
   const mNewInp=$('#mNewMember'); if(mNewInp) mNewInp.addEventListener('keydown',e=>{ if(e.key==='Enter') addMember(); });
