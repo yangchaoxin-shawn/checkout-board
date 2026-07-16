@@ -206,3 +206,28 @@ await fetch('/api/checkin', { body: JSON.stringify({item}) });
 4. **错误必须被看见。** 被 `catch(e){}` 吞掉的错误不会消失，它们会以更奇怪的形式出现在用户面前。
 
 5. **最小改动不是目标，正确设计才是。** 修复 `appendById` 的错误传播只需要改一行 catch，但治不了根。重构成一次事务写入看起来改动大，但解决了所有潜在问题。
+
+---
+
+## 六、已知遗留问题（v1.1 未解决）
+
+### 6.1 syncFallbackData 同步无 Token
+
+**现象：** `frontend/app.js` 中 `syncFallbackData()` 函数在 localStorage 兜底数据恢复时，POST 请求不带 `Authorization: Bearer` header。服务端 `_check_auth()` 要求 Token 后，返回 401，导致：
+- 兜底数据无法同步回服务端
+- `localStorage.removeItem(k)` 仍执行（因 fetch 不抛错），导致兜底数据被误删
+
+**影响条件：** 默认密码 `365` 已被修改（服务端强制 Token 鉴权）。如果密码未修改（默认 365），则 401 不会触发，此问题不存在。
+
+**建议修复方向：**
+- `syncFallbackData` 同步时携带 localStorage 中的 Token
+- 或使用专门的 `/api/fallback-sync` 端点，使用独立的轮换密钥鉴权
+- 同时修复 `localStorage.removeItem(k)` 在 401 时不执行
+
+**触发位置：** `frontend/app.js` L125-141, L130（syncFallbackData）, L138（removeItem）
+
+### 6.2 counts 实时统计性能
+
+**现象：** 在大量打卡数据下，每次提交时全量扫描 `day:*` 前缀键做 counts 统计可能成为瓶颈。
+
+**建议修复方向：** 增加索引键如 `_stats_summary`，或使用 SQLite 聚合查询替代全量扫描。
