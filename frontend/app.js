@@ -769,20 +769,34 @@ function releaseSubmitBtn(){
 }
 async function delCheckin(id,date){
   if(!confirm('删除我的这条打卡记录？')) return;
-  // capture the row (for its type) BEFORE deleting so counts roll back correctly
-  const src=(dayCache[date]||await loadDay(date));
-  const row=src.find(c=>c.id===id);
-  const arr=await removeById('day:'+date,id);
-  dayCache[date]=arr.sort((a,b)=>b.ts-a.ts);
-  await removeById('member:'+me.name,id);
-  feishuDelRow(id);     // 飞书可读台账：移除对应行（best-effort）
-  if(row){
-    if(row.type==='牵引客户'||row.type==='两者都有') counts.customers=Math.max(0,counts.customers-1);
-    if(row.type==='吸引伙伴'||row.type==='两者都有') counts.partners=Math.max(0,counts.partners-1);
-    await S.set('counts',counts,true);
+  // server 模式：使用 /api/checkin/delete 原子操作
+  if(BACKEND_MODE==='server' && SERVER_URL){
+    try{
+      const token=getStoredToken();
+      const r=await fetch(SERVER_URL.replace(/\/+$/,'')+'/api/checkin/delete', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({id,date})
+      });
+      const d=await r.json();
+      if(d && d.ok){
+        feishuDelRow(id);
+        await refreshShared();  // 从服务端重新拉取
+        toast('已删除');
+      }else{
+        toast('删除失败：'+(d.error||'未知错误'));
+      }
+    }catch(e){
+      toast('网络错误，请重试');
+    }
+  }else{
+    // 非 server 模式：保留原逻辑
+    const arr=await removeById('day:'+date,id);
+    dayCache[date]=arr.sort((a,b)=>b.ts-a.ts);
+    feishuDelRow(id);
+    await renderAll();
+    toast('已删除');
   }
-  await renderAll();
-  toast('已删除');
 }
 
 /* ============ 大客户牵引方法 · 内嵌文档 ============ */

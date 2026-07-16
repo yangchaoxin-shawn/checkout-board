@@ -355,6 +355,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._api_change_password(body)
         if parsed.path == "/api/checkin":
             return self._api_checkin(body)
+        if parsed.path == "/api/checkin/delete":
+            return self._api_delete_checkin(body)
 
         self._json({"error": "not found"}, 404)
 
@@ -596,6 +598,68 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({"ok": False, "error": str(e)}, 500)
 
         self._json({"ok": True, "item": item})
+
+    def _api_delete_checkin(self, body):
+        """删除打卡 — 原子操作。事务内：从 day 数组移除 + 减 counts"""
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, 401)
+        item_id = body.get("id", "")
+        date = body.get("date", "")
+        if not item_id or not date:
+            return self._json({"ok": False, "error": "missing id or date"}, 400)
+
+        conn = get_db()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+
+            # 1) 读 day 数组
+            row = conn.execute("SELECT value FROM kv WHERE key=?", (f"day:{date}",)).fetchone()
+            if not row:
+                conn.execute("ROLLBACK")
+                return self._json({"ok": False, "error": "day not found"}, 404)
+            day_arr = json.loads(row["value"])
+
+            # 2) 找到要删的 item，记录其 type 用于减 counts
+            idx = -1
+            removed_type = None
+            for i, it in enumerate(day_arr):
+                if it.get("id") == item_id:
+                    idx = i
+                    removed_type = it.get("type", "")
+                    break
+            if idx < 0:
+                conn.execute("ROLLBACK")
+                return self._json({"ok": False, "error": "item not found"}, 404)
+
+            # 3) 从 day 数组移除
+            day_arr.pop(idx)
+            conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                (f"day:{date}", json.dumps(day_arr, ensure_ascii=False)),
+            )
+
+            # 4) 减 counts
+            row = conn.execute("SELECT value FROM kv WHERE key='counts'").fetchone()
+            counts = json.loads(row["value"]) if row else {"customers": 0, "partners": 0}
+            if removed_type in ("牵引客户", "两者都有"):
+                counts["customers"] = max(0, counts.get("customers", 0) - 1)
+            if removed_type in ("吸引伙伴", "两者都有"):
+                counts["partners"] = max(0, counts.get("partners", 0) - 1)
+            conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                ("counts", json.dumps(counts, ensure_ascii=False)),
+            )
+
+            conn.execute("COMMIT")
+        except Exception as e:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            print(f"[delete_checkin] transaction failed: {e}")
+            return self._json({"ok": False, "error": str(e)}, 500)
+
+        self._json({"ok": True, "id": item_id, "date": date})
 
 
 def _campaign_goal(cfg):
