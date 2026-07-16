@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作战打卡看板 · 用户操作手册</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#F5F7FB;color:#1A1A2E;font-family:system-ui,-apple-system,sans-serif;line-height:1.8}
+.wrap{max-width:800px;margin:0 auto;padding:48px 24px 80px}
+h1{font-size:26px;font-weight:700;margin-bottom:4px;color:#06111F}
+h1 span{color:#3B5BFF}
+.sub{color:#6B7280;font-size:14px;margin-bottom:32px}
+h2{font-size:18px;font-weight:600;margin:36px 0 16px;padding-left:12px;border-left:3px solid #3B5BFF}
+h3{font-size:15px;font-weight:600;margin:20px 0 8px}
+.section-admin{border:1px solid #FFD7D7;border-radius:10px;padding:20px 24px;margin:16px 0;background:#FFF5F5}
+.section-admin h2{border-left-color:#FF4D4F;color:#B91C1C}
+.section-member{border:1px solid #D1FAE5;border-radius:10px;padding:20px 24px;margin:16px 0;background:#F0FFF4}
+.section-member h2{border-left-color:#059669;color:#065F46}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;font-weight:600}
+.tag-admin{background:#FF4D4F15;color:#D92D20;border:1px solid #FF4D4F30}
+.tag-member{background:#05966915;color:#047857;border:1px solid #05966930}
+.step{display:flex;gap:12px;margin:10px 0}
+.step-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:#3B5BFF;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.step-body{flex:1}
+.warn{background:#FFF3E0;border-left:3px solid #FF9800;padding:12px 16px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+.warn-red{background:#FFEBEE;border-left:3px solid #EF5350;padding:12px 16px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+.info{background:#E3F2FD;border-left:3px solid #42A5F5;padding:12px 16px;border-radius:0 8px 8px 0;margin:12px 0;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid #E5E7EB}
+th{background:#F9FAFB;color:#6B7280;font-weight:600;font-size:12px}
+td{color:#1A1A2E}
+a{color:#3B5BFF;text-decoration:none}
+a:hover{text-decoration:underline}
+hr{margin:40px 0;border:none;border-top:1px solid #E5E7EB}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>⛳ 每日作战打卡看板 · <span>操作手册</span></h1>
+<p class="sub">面向团队全体成员 · 超管和成员都看这一份</p>
+
+<div class="info">
+<strong>访问地址：</strong> 向超管索取链接<br>
+<strong>门禁密码：</strong> 团队统一密码，向超管索取<br>
+<strong>首次使用：</strong> 打开页面 → 输入门禁密码 → 输入姓名 → 开始打卡
+</div>
+
+<div class="section-admin">
+
+<h2>⚠ 超级管理员专页</h2>
+<p style="font-size:13px;color:#6B7280">只有被标记为"超级管理员"的人才能看到以下按钮。</p>
+
+<h3>顶部按钮一览</h3>
+<table>
+<tr><th>图标</th><th>作用</th><th>可见范围</th></tr>
+<tr><td>⚙ 齿轮</td><td>作战目标设置（队伍名称、收官日期、起始日、文档链接）</td><td>仅超管</td></tr>
+<tr><td>👥 人员</td><td>成员管理（添加/删除）</td><td>仅超管</td></tr>
+<tr><td>⬇ 下载</td><td>导出 Excel 报表（4 个 sheet）</td><td>所有登录用户</td></tr>
+</table>
+
+<h3>一、首次部署——设置团队</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">打开页面，输入门禁密码进入</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">点击右上角 ⚙ 设置，弹出「作战目标设置」面板</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">填写：队伍名称（最多 8 字）、收官日期、作战起始日期、方法文档链接（选填）</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">点击「保存目标」→ 配置生效（年度目标天数自动算出）</div></div>
+
+<h3>二、成员管理</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">点击右上角 👥 成员按钮，弹出「成员管理」面板</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">输入姓名 → 点击「添加」</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">新成员即可在门禁页用姓名登录打卡</div></div>
+<p style="margin-top:8px">删除：成员列表中找到姓名 → 点击旁边的「删除」按钮确认</p>
+
+<h3>三、转让超管</h3>
+<div class="warn-red">⚠ 转让后你将失去超管权限，只有新超管能管理设置和成员。</div>
+<div class="step"><div class="step-num">1</div><div class="step-body">打开 ⚙ 设置面板，拉到底部</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">在「转让超级管理员给」填写新超管姓名（必须在花名册中）</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">点击「保存目标」→ 自动完成转让</div></div>
+
+<h3>四、导出数据</h3>
+<p>点击顶部 ⬇ 下载图标，自动下载 Excel 报表（.xlsx），包含：</p>
+<ul style="padding-left:20px;margin:8px 0;font-size:13px">
+  <li>打卡明细 — 所有打卡记录</li>
+  <li>每日汇总 — 按日期汇总</li>
+  <li>团队配置 — 队伍名称、超管、目标日期</li>
+  <li>成员花名册 — 全员名单标注超管/成员</li>
+</ul>
+
+<h3>五、超管职责</h3>
+<div class="warn-red">
+1. 保管门禁密码，不泄露给非团队成员<br>
+2. 新成员入职及时添加到花名册<br>
+3. 成员离职及时删除<br>
+4. 建议每周导出一次 Excel 备份<br>
+5. 交接超管身份使用「转让」功能
+</div>
+
+</div>
+
+<div class="section-member">
+
+<h2>成员操作指南</h2>
+
+<h3>一、每日打卡流程</h3>
+<div class="step"><div class="step-num">1</div><div class="step-body">打开打卡页面，输入门禁密码点击「进入」</div></div>
+<div class="step"><div class="step-num">2</div><div class="step-body">输入姓名 → 点击「进入战场」（首次需超管将你加入花名册）</div></div>
+<div class="step"><div class="step-num">3</div><div class="step-body">点击「提交今日战果」，弹出打卡表单</div></div>
+<div class="step"><div class="step-num">4</div><div class="step-body">选择动作类型：吸引伙伴 / 牵引客户 / 两者都有</div></div>
+<div class="step"><div class="step-num">5</div><div class="step-body">填写「牵引结果一句话」（必填）</div></div>
+<div class="step"><div class="step-num">6</div><div class="step-body">选择「资源状态」：初步触达 / 已沟通 / 有明确机会 / 已约定推进 / 已成交</div></div>
+<div class="step"><div class="step-num">7</div><div class="step-body">填写「下一步动作」</div></div>
+<div class="step"><div class="step-num">8</div><div class="step-body">点击「提交今日战果」→ 完成</div></div>
+<div class="info">支持多次提交。如想删除某条记录，在打卡列表中找到自己的记录，点击右侧 ✕ 删除。</div>
+
+<h3>二、查看统计</h3>
+<ul style="padding-left:20px;margin:8px 0;font-size:13px">
+  <li>年度目标：从作战起始日到年末的天数 + 剩余天数 + 进度条</li>
+  <li>今日打卡：N / 总人数（环形图）</li>
+  <li>吸引伙伴 / 牵引客户：今日人次数 + 头像 + 最新进展</li>
+  <li>打卡列表：默认显示今日，可切换日期或成员筛选</li>
+</ul>
+
+<h3>三、常见问题</h3>
+<p><strong>Q：密码不对进不去？</strong> → 向超管确认门禁密码</p>
+<p style="margin-top:8px"><strong>Q：提示"未注册，联系超管"？</strong> → 你的姓名还没加入花名册</p>
+<p style="margin-top:8px"><strong>Q：今天打错了想改？</strong> → 找到自己的记录，点击 ✕ 删除后重新提交</p>
+<p style="margin-top:8px"><strong>Q：为什么门禁密码框会自己填东西？</strong> → 这是浏览器密码管理器的自动填充，已用 autocomplete="new-password" 强制阻止</p>
+
+</div>
+
+<div class="info" style="margin-top:24px">
+<strong>版本：</strong>v1.0 · 迭代历史见 <a href="CHANGELOG.md">CHANGELOG.md</a>
+</div>
+
+</div>
+</body>
+</html>

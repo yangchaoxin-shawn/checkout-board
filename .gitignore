@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+*.log
+test_export.xlsx
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+# (dockerignore 应纳入版本控制，不要在 gitignore 中排除)
+
+# WorkBuddy workspace metadata
+.workbuddy/

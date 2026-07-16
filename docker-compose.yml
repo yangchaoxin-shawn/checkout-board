@@ -1,0 +1,31 @@
+# ====================================================
+# 每日作战打卡看板 — Docker Compose 编排
+# ====================================================
+# 单服务：仅后端 API 容器。外网 nginx 由运维统一配置。
+#
+# 端口配置：修改 .env 中 API_PORT 即可（默认 8080）
+#   cp .env.example .env
+#   编辑 .env 中的 API_PORT=xxxx
+#   docker compose up -d
+# ====================================================
+
+services:
+
+  # ── 后端 API ──────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: deploy/Dockerfile
+    container_name: checkin-backend
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8080}:8080"    # 端口由 .env 中的 API_PORT 控制，默认 8080
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
