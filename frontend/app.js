@@ -993,13 +993,21 @@ async function changePassword(){
     });
     var d=await r.json();
     if(d && d.ok){
-      // 更新本地存储的 Token 和门禁缓存
+      // 更新 Token，但清空门禁记忆（下次需要重新输入新密码）
       if(d.token) try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
-      try{ localStorage.setItem(KEY,'1'); localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); }catch(e){}
+      try{ localStorage.removeItem(KEY); localStorage.removeItem(KEY_EXP); }catch(e){}
+      // 关闭所有弹窗
+      document.querySelectorAll('.overlay.on').forEach(function(o){ o.classList.remove('on'); });
+      closeLogin();
       $('#sPassword').value='';
-      $('#sPwMsg').textContent='✅ 密码修改成功';
-      $('#sPwMsg').style.color='var(--success)';
-      toast('门禁密码已修改，新密码即时生效');
+      $('#sPwMsg').textContent='';
+      toast('门禁密码已修改，请重新用新密码登录');
+      // 清除当前登录状态，弹出登录页
+      setTimeout(function(){
+        me=null; S.del('me',false);
+        clearAdminVerified();
+        gateOpen();
+      }, 800);
     }else{
       $('#sPwMsg').textContent='修改失败：'+(d.error||'未知错误');
       $('#sPwMsg').style.color='var(--danger)';
