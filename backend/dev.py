@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 # 导入 api 模块（后面需要修改 api.PASSWORD，所以用 import api 而非 from api import PASSWORD）
 import api
-from api import Handler, ROOT, DATA_DIR, DB_PATH, db_get, db_set, migrate_json_to_sqlite, get_gate_password, _init_password
+from api import Handler, ROOT, DATA_DIR, DB_PATH, db_get, db_set, migrate_json_to_sqlite, get_gate_password, _init_password, _init_admin_password, set_admin_password, check_admin_password
 
 # 静态文件根目录：frontend/（线上 nginx 也服务这里，保持一致）
 STATIC_ROOT = ROOT.parent / "frontend"
@@ -91,8 +91,9 @@ def main():
         db_set("roster:admin", {"name": "admin", "ts": int(datetime.now().timestamp() * 1000)})
         print("[init] 已创建默认管理员 admin")
 
-    # 初始化门禁密码
+    # 初始化门禁密码和超管密码
     api._init_password()
+    api._init_admin_password()
 
     DevHandler.api_only = args.api_only
 

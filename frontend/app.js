@@ -317,6 +317,53 @@ let curFilterMember='';
 
 /* ============ 权限 ============ */
 function isSuperAdmin(){ return me && me.name === config.superAdmin; }
+// 超管二次验证：sessionStorage 标记，关闭页面自动失效
+var ADMIN_VERIFIED_KEY='bb_admin_ok';
+function isAdminVerified(){
+  try{ return sessionStorage.getItem(ADMIN_VERIFIED_KEY)==='1'; }catch(e){ return false; }
+}
+function markAdminVerified(){
+  try{ sessionStorage.setItem(ADMIN_VERIFIED_KEY,'1'); }catch(e){}
+}
+function clearAdminVerified(){
+  try{ sessionStorage.removeItem(ADMIN_VERIFIED_KEY); }catch(e){}
+}
+// 打开超管验证弹窗，验证成功后执行 callback
+var adminCb=null;
+function requireAdminAuth(callback){
+  if(!isSuperAdmin()){ toast('仅超级管理员可执行此操作'); return; }
+  if(isAdminVerified()){ callback(); return; }
+  adminCb=callback;
+  $('#adminPwInput').value=''; $('#adminPwErr').style.visibility='hidden';
+  $('#adminPwOverlay').classList.add('on');
+  setTimeout(function(){try{$('#adminPwInput').focus();}catch(e){}},200);
+}
+async function doAdminAuth(){
+  var pw=$('#adminPwInput').value.trim();
+  if(!pw){ $('#adminPwErr').textContent='请输入超管密码'; $('#adminPwErr').style.visibility='visible'; return; }
+  try{
+    var base=SERVER_URL.replace(/\/+$/,'');
+    var token=getStoredToken();
+    var r=await fetch(base+'/api/auth/admin', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({password:pw})
+    });
+    var d=await r.json();
+    if(d && d.ok){
+      markAdminVerified();
+      $('#adminPwOverlay').classList.remove('on');
+      if(adminCb){ var cb=adminCb; adminCb=null; cb(); }
+    }else{
+      $('#adminPwErr').textContent='超管密码不正确';
+      $('#adminPwErr').style.visibility='visible';
+      $('#adminPwInput').value=''; try{$('#adminPwInput').focus();}catch(e){}
+    }
+  }catch(e){
+    $('#adminPwErr').textContent='网络错误，请重试';
+    $('#adminPwErr').style.visibility='visible';
+  }
+}
 
 /* ============ init ============ */
 (async function init(){
@@ -877,16 +924,14 @@ async function exportCSV(){
 
 /* ============ settings ============ */
 function openSettings(){
-  if(!isSuperAdmin()){
-    toast('仅超级管理员可以修改设置');
-    return;
-  }
-  $('#sTeam').value=config.team; $('#sDate').value=config.target;
-  $('#sStart').value=config.start||'2026-07-13'; $('#sDoc').value=config.doc||'';
-  $('#sSuperAdmin').value='';
-  applyConfig();  // 自动同步 sSuperAdminLabel
-  updateGoalPreview();
-  $('#settingsOverlay').classList.add('on');
+  requireAdminAuth(function(){
+    $('#sTeam').value=config.team; $('#sDate').value=config.target;
+    $('#sStart').value=config.start||'2026-07-13'; $('#sDoc').value=config.doc||'';
+    $('#sSuperAdmin').value='';
+    applyConfig();
+    updateGoalPreview();
+    $('#settingsOverlay').classList.add('on');
+  });
 }
 async function saveSettings(){
   if(!isSuperAdmin()) return;
@@ -932,6 +977,10 @@ async function saveSettings(){
 /* ============ 修改门禁密码（超管权限）============ */
 async function changePassword(){
   if(!isSuperAdmin()){ toast('仅超级管理员可以修改密码'); return; }
+  if(!isAdminVerified()){
+    requireAdminAuth(function(){ changePassword(); });
+    return;
+  }
   var newPw=$('#sPassword').value.trim();
   if(newPw.length<2){ $('#sPwMsg').textContent='密码至少 2 个字符'; $('#sPwMsg').style.color='var(--danger)'; return; }
   var token=getStoredToken();
@@ -963,17 +1012,14 @@ async function changePassword(){
 
 /* ============ 成员管理（超级管理员）============ */
 function openMembers(){
-  if(!isSuperAdmin()){
-    toast('仅超级管理员可以管理成员');
-    return;
-  }
-  (async ()=>{
-    await loadRoster();
-    // 空列表时重试一次（可能是首次启动数据未就绪），不再白等
-    if(!roster.length){ await new Promise(r=>setTimeout(r,500)); await loadRoster(); }
-    renderMemberList();
-  })();
-  $('#memberOverlay').classList.add('on');
+  requireAdminAuth(function(){
+    (async ()=>{
+      await loadRoster();
+      if(!roster.length){ await new Promise(r=>setTimeout(r,500)); await loadRoster(); }
+      renderMemberList();
+    })();
+    $('#memberOverlay').classList.add('on');
+  });
 }
 async function addMember(){
   if(!isSuperAdmin()) return;
@@ -1065,6 +1111,9 @@ function wire(){
 
   $('#settingsBtn').onclick=openSettings;
   $('#memberBtn').onclick=openMembers;
+  // 超管验证弹窗
+  var apwGo=$('#adminPwGo'); if(apwGo) apwGo.onclick=doAdminAuth;
+  var apwInp=$('#adminPwInput'); if(apwInp) apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') doAdminAuth(); });
   const eb=$('#exportBtn'); if(eb) eb.onclick=exportCSV;
   $('#sSave').onclick=saveSettings;
   $('#sStart').addEventListener('change',updateGoalPreview);

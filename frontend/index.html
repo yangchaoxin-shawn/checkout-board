@@ -332,6 +332,23 @@
   </div>
 </div>
 
+<!-- ADMIN PASSWORD OVERLAY -->
+<div class="overlay" id="adminPwOverlay">
+  <div class="modal" style="max-width:380px">
+    <h2>🔐 超管验证</h2>
+    <div class="sub">请输入超管密码以执行此操作。</div>
+    <div class="field">
+      <input type="password" id="adminPwInput" placeholder="超管密码" maxlength="20" style="width:100%;font-size:18px;text-align:center;letter-spacing:4px"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div id="adminPwErr" class="err" style="visibility:hidden">密码不正确</div>
+    </div>
+    <div class="actions">
+      <button class="btn cancel" data-close>取消</button>
+      <button class="btn solid-go" id="adminPwGo">🔓 验证</button>
+    </div>
+  </div>
+</div>
+
 <div class="mobile-cta" id="mobileCta">
   <button class="go" id="mobileGo">🦈 提交今日战果</button>
 </div>

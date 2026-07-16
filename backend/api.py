@@ -43,6 +43,23 @@ def set_gate_password(new_pw: str) -> bool:
     """更新门禁密码（运行时生效，无需重启）"""
     return db_set("_password", new_pw)
 
+# ── 超管密码（与门禁密码独立）──
+def _init_admin_password():
+    """首次启动时初始化超管密码，默认与门禁密码相同"""
+    if not db_get("_admin_password"):
+        default = get_gate_password()
+        db_set("_admin_password", default)
+        print(f"[init] 超管密码已初始化（{default[:2]}***）")
+
+def check_admin_password(pw: str) -> bool:
+    """校验超管密码"""
+    stored = db_get("_admin_password")
+    return stored == pw if stored else False
+
+def set_admin_password(pw: str) -> bool:
+    """更新超管密码"""
+    return db_set("_admin_password", pw)
+
 # ── SQLite 存储层 ──
 def get_db():
     conn = sqlite3.connect(str(DB_PATH), isolation_level=None)
@@ -351,8 +368,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._api_set(body)
         if parsed.path == "/api/auth":
             return self._api_login(body)
+        if parsed.path == "/api/auth/admin":
+            return self._api_admin_auth(body)
         if parsed.path == "/api/password":
             return self._api_change_password(body)
+        if parsed.path == "/api/admin/password":
+            return self._api_admin_password(body)
         if parsed.path == "/api/checkin":
             return self._api_checkin(body)
         if parsed.path == "/api/checkin/delete":
@@ -403,6 +424,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         """验证当前 Authorization header 中的 Token 是否有效"""
         ok = self._check_auth()
         self._json({"ok": ok})
+
+    def _api_admin_auth(self, body):
+        """超管密码验证"""
+        pw = body.get("password", "")
+        ok = check_admin_password(pw)
+        if ok:
+            self._json({"ok": True})
+        else:
+            self._json({"ok": False, "error": "wrong admin password"}, 401)
 
     def _api_get(self, qs):
         key = qs.get("key", [""])[0]
@@ -538,6 +568,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         new_token = generate_token()
         print(f"[auth] 门禁密码已修改（{new_pw[:2]}***）")
         self._json({"ok": True, "token": new_token})
+
+    def _api_admin_password(self, body):
+        """超级管理员修改超管密码（需要有效 Token 鉴权）"""
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, 401)
+        new_pw = body.get("password", "")
+        if len(new_pw) < 2:
+            return self._json({"ok": False, "error": "password too short"}, 400)
+        set_admin_password(new_pw)
+        print(f"[auth] 超管密码已修改（{new_pw[:2]}***）")
+        self._json({"ok": True})
 
     def _api_checkin(self, body):
         """打卡提交 — 原子操作。接收单条 item，一个事务完成：幂等检查 + day 追加 + counts 更新"""
@@ -695,8 +736,9 @@ if __name__ == "__main__":
         db_set("roster:admin", {"name": "admin", "ts": int(datetime.now().timestamp() * 1000)})
         print("[init] 已创建默认管理员 admin")
 
-    # 初始化门禁密码（若 SQLite 中尚无则从环境变量/默认值写入）
+    # 初始化门禁密码和超管密码
     _init_password()
+    _init_admin_password()
 
     server = http.server.HTTPServer((args.host, args.port), Handler)
     display_host = "localhost" if args.host in ("0.0.0.0", "") else args.host
