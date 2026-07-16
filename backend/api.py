@@ -353,6 +353,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._api_login(body)
         if parsed.path == "/api/password":
             return self._api_change_password(body)
+        if parsed.path == "/api/checkin":
+            return self._api_checkin(body)
 
         self._json({"error": "not found"}, 404)
 
@@ -534,6 +536,66 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         new_token = generate_token()
         print(f"[auth] 门禁密码已修改（{new_pw[:2]}***）")
         self._json({"ok": True, "token": new_token})
+
+    def _api_checkin(self, body):
+        """打卡提交 — 原子操作。接收单条 item，一个事务完成：幂等检查 + day 追加 + counts 更新"""
+        if not self._check_auth():
+            return self._json({"ok": False, "error": "unauthorized"}, 401)
+        item = body.get("item", {})
+        name = item.get("name", "")
+        date = item.get("date", "")
+        tp = item.get("type", "")
+        result = item.get("result", "")
+        if not name or not date or not tp or not result:
+            return self._json({"ok": False, "error": "missing required fields (name, date, type, result)"}, 400)
+
+        conn = get_db()
+        try:
+            # 开始事务
+            conn.execute("BEGIN IMMEDIATE")
+
+            # 1) 读 day: 数组
+            row = conn.execute("SELECT value FROM kv WHERE key=?", (f"day:{date}",)).fetchone()
+            day_arr = json.loads(row["value"]) if row else []
+
+            # 2) 幂等性检查：同人+同日+同类型+同内容
+            for ex in day_arr:
+                if (ex.get("name") == name
+                        and ex.get("date") == date
+                        and ex.get("type") == tp
+                        and ex.get("result") == result):
+                    conn.execute("ROLLBACK")
+                    return self._json({"ok": False, "error": "duplicate check-in", "dup": True}, 409)
+
+            # 3) 追加到 day: 数组
+            day_arr.append(item)
+            conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                (f"day:{date}", json.dumps(day_arr, ensure_ascii=False)),
+            )
+
+            # 4) 增量更新 counts（在同一个事务内，避免并发覆盖）
+            row = conn.execute("SELECT value FROM kv WHERE key='counts'").fetchone()
+            counts = json.loads(row["value"]) if row else {"customers": 0, "partners": 0}
+            if tp in ("牵引客户", "两者都有"):
+                counts["customers"] = counts.get("customers", 0) + 1
+            if tp in ("吸引伙伴", "两者都有"):
+                counts["partners"] = counts.get("partners", 0) + 1
+            conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                ("counts", json.dumps(counts, ensure_ascii=False)),
+            )
+
+            conn.execute("COMMIT")
+        except Exception as e:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            print(f"[checkin] transaction failed: {e}")
+            return self._json({"ok": False, "error": str(e)}, 500)
+
+        self._json({"ok": True, "item": item})
 
 
 def _campaign_goal(cfg):

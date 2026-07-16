@@ -24,18 +24,20 @@ function gateRemember(){
 }
 function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.focus();}catch(e){}},60); }
 function gatePass(){ gateOv.classList.add('gate-hide'); document.body.style.overflow=''; }
-// 向服务端验证密码并获取 Token
+// 向服务端验证密码并获取 Token。返回 {ok, reason}，reason 为 'wrong_pw' 或 'unreachable'
 async function gateServerAuth(pw){
-  if(BACKEND_MODE!=='server' || !SERVER_URL) return false;
+  if(BACKEND_MODE!=='server' || !SERVER_URL) return {ok:false, reason:'no_server'};
   try{
     var r=await fetch(SERVER_URL+'/api/auth?password='+encodeURIComponent(pw), {cache:'no-store'});
     var d=await r.json();
     if(d && d.ok && d.token){
       try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
-      return true;
+      return {ok:true, reason:'success'};
     }
-  }catch(e){}
-  return false;
+    return {ok:false, reason:'wrong_pw'};
+  }catch(e){
+    return {ok:false, reason:'unreachable'};
+  }
 }
 // 获取存储的 Token（用于导出等敏感操作）
 function getStoredToken(){
@@ -43,12 +45,20 @@ function getStoredToken(){
 }
 async function gateTry(){
   var pw=gateInp.value.trim();
-  // server 模式：优先服务端验证
   if(BACKEND_MODE==='server' && SERVER_URL){
-    var ok=await gateServerAuth(pw);
-    if(ok){ gateRemember(); gatePass(); return; }
+    var result=await gateServerAuth(pw);
+    if(result.ok){ gateRemember(); gatePass(); return; }
+    // 服务端在线但密码不对 → 不回退本地，直接报错
+    if(result.reason==='wrong_pw'){
+      gateErr.textContent='密码不正确，请确认后重试（密码可能已被超管修改）';
+      gateErr.classList.add('show');
+      gateCard.classList.remove('gate-shake'); void gateCard.offsetWidth; gateCard.classList.add('gate-shake');
+      gateInp.value=''; try{gateInp.focus();}catch(e){}
+      return;
+    }
+    // reason==='unreachable' → 服务端连不上，回退本地验证
   }
-  // 服务端不可用或非 server 模式：回退本地验证
+  // 非 server 模式，或服务端不可达：回退本地 config.js PW 验证
   if(pw===PW){ gateRemember(); gatePass(); }
   else{ gateErr.classList.add('show'); gateCard.classList.remove('gate-shake'); void gateCard.offsetWidth; gateCard.classList.add('gate-shake'); gateInp.value=''; try{gateInp.focus();}catch(e){} }
 }
@@ -194,7 +204,11 @@ const SHARED = {
       // local: 持久化到 localStorage
       localStorage.setItem(LS_PREFIX + k, JSON.stringify(v));
       return true;
-    }catch(e){ console.error('set',e); return null; } },
+    }catch(e){ 
+      // dup 错误继续向上传播（不被外层 catch 吞掉）
+      if(e && e.dup) throw e;
+      console.error('set',e); return null; 
+    } },
   async del(k){ try{
       if(BACKEND_MODE==='server'){
         const r = await fetch(`${SERVER_URL}/api/data?key=${encodeURIComponent(k)}`, {method:'DELETE'});
@@ -685,33 +699,57 @@ async function submitCheckin(){
   const item={ id:'ck_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
     name:me.name, avatar:me.avatar, date:ds, type:ciType, result,
     status:ciStatus, next:$('#ciNext').value.trim(), ts:Date.now() };
-  // 1) day array  2) member array  3) counts  4) ensure roster
-  try{
-    dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
-  }catch(e){
-    // 服务端返回 409 重复打卡
-    if(e && e.dup){
-      toast('⚠️ 该打卡记录已存在，请勿重复提交');
-      ciSubmitting=false;
-      submitBtn.disabled=false;
-      submitBtn.textContent='🦈 提交今日战果';
-      return;
+
+  // server 模式：使用 /api/checkin 一站式原子提交（不再手动维护 day/member/counts）
+  if(BACKEND_MODE==='server' && SERVER_URL){
+    try{
+      const token=getStoredToken();
+      const r=await fetch(SERVER_URL.replace(/\/+$/,'')+'/api/checkin', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({item})
+      });
+      const d=await r.json();
+      if(d && d.ok){
+        feishuLogRow(item);
+        $('#checkinOverlay').classList.remove('on');
+        await refreshShared();  // 从服务端重新拉取全部数据
+        toast('战果已提交 🦈 全组都看到了');
+      }else if(d && d.dup){
+        toast('⚠️ 该打卡记录已存在，请勿重复提交');
+      }else{
+        toast('提交失败：'+(d.error||'未知错误'));
+      }
+    }catch(e){
+      toast('网络错误，请检查连接后重试');
     }
-    throw e;
+  }else{
+    // 非 server 模式：保留原有逻辑
+    try{
+      dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
+    }catch(e){
+      if(e && e.dup){
+        toast('⚠️ 该打卡记录已存在，请勿重复提交');
+        releaseSubmitBtn();
+        return;
+      }
+      throw e;
+    }
+    await appendById('member:'+me.name,item);
+    if(ciType==='牵引客户'||ciType==='两者都有') counts.customers++;
+    if(ciType==='吸引伙伴'||ciType==='两者都有') counts.partners++;
+    await S.set('counts',counts,true);
+    feishuLogRow(item);
+    $('#checkinOverlay').classList.remove('on');
+    await renderAll();
+    toast('战果已提交 🦈');
   }
-  await appendById('member:'+me.name,item);
-  if(ciType==='牵引客户'||ciType==='两者都有') counts.customers++;
-  if(ciType==='吸引伙伴'||ciType==='两者都有') counts.partners++;
-  await S.set('counts',counts,true);
-  feishuLogRow(item);   // 飞书可读台账：镜像一行（best-effort）
-  $('#checkinOverlay').classList.remove('on');
-  await renderAll();
-  toast('战果已提交 🦈 全组都看到了');
-  setTimeout(function(){
-    ciSubmitting=false;
-    submitBtn.disabled=false;
-    submitBtn.textContent='🦈 提交今日战果';
-  }, 1000);
+  releaseSubmitBtn();
+}
+function releaseSubmitBtn(){
+  ciSubmitting=false;
+  var btn=$('#ciSubmit');
+  if(btn){ btn.disabled=false; btn.textContent='🦈 提交今日战果'; }
 }
 async function delCheckin(id,date){
   if(!confirm('删除我的这条打卡记录？')) return;

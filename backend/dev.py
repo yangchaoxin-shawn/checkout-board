@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 # 导入 api 模块（后面需要修改 api.PASSWORD，所以用 import api 而非 from api import PASSWORD）
 import api
-from api import Handler, ROOT, DATA_DIR, DB_PATH, db_get, db_set, migrate_json_to_sqlite
+from api import Handler, ROOT, DATA_DIR, DB_PATH, db_get, db_set, migrate_json_to_sqlite, get_gate_password, _init_password
 
 # 静态文件根目录：frontend/（线上 nginx 也服务这里，保持一致）
 STATIC_ROOT = ROOT.parent / "frontend"
@@ -80,7 +80,7 @@ def main():
     args = parser.parse_args()
 
     if args.password:
-        api.PASSWORD = args.password
+        api.PASSWORD_INIT = args.password
 
     json_files = list(DATA_DIR.glob("*.json"))
     if json_files:
@@ -91,6 +91,9 @@ def main():
         db_set("roster:admin", {"name": "admin", "ts": int(datetime.now().timestamp() * 1000)})
         print("[init] 已创建默认管理员 admin")
 
+    # 初始化门禁密码
+    api._init_password()
+
     DevHandler.api_only = args.api_only
 
     server = http.server.HTTPServer((args.host, args.port), DevHandler)
@@ -98,8 +101,8 @@ def main():
     mode = "纯 API（生产模式）" if args.api_only else "本地开发（含静态文件）"
     print(f"[checkin] 服务运行在 http://{display_host}:{args.port}  [{mode}]")
     print(f"[checkin] API:  http://{display_host}:{args.port}/api/health")
-    pw = api.PASSWORD
-    print(f"[checkin] 密码: {pw[:2]}***（通过 CHECKIN_PASSWORD 环境变量或 --password 设置）")
+    pw = api.get_gate_password()
+    print(f"[checkin] 密码: {pw[:2]}***（可通过设置面板运行时修改）")
     print(f"[checkin] 存储: SQLite ({DB_PATH})")
     try:
         server.serve_forever()
