@@ -737,7 +737,20 @@ async function submitCheckin(){
         toast('提交失败：'+(d.error||'未知错误'));
       }
     }catch(e){
-      toast('网络错误，请检查连接后重试');
+      // 网络错误：降级到本地 appendById 兜底（含 localStorage fallback）
+      try{
+        dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
+        await appendById('member:'+me.name,item);
+        if(ciType==='牵引客户'||ciType==='两者都有') counts.customers++;
+        if(ciType==='吸引伙伴'||ciType==='两者都有') counts.partners++;
+        await S.set('counts',counts,true);
+        feishuLogRow(item);
+        $('#checkinOverlay').classList.remove('on');
+        await renderAll();
+        toast('战果已暂存本地（服务端暂不可达）');
+      }catch(fbErr){
+        toast('提交失败，请检查网络后重试');
+      }
     }
   }else{
     // 非 server 模式：保留原有逻辑
