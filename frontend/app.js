@@ -1032,7 +1032,8 @@ async function changeAdminPassword(){
       $('#sAdminPw').value='';
       $('#sAdminPwMsg').textContent='✅ 超管密码修改成功';
       $('#sAdminPwMsg').style.color='var(--success)';
-      toast('超管密码已修改');
+      clearAdminVerified();  // 清空验证标记，下次需要重新验证
+      toast('超管密码已修改，下次操作需要重新验证');
     }else{
       $('#sAdminPwMsg').textContent='修改失败：'+(d.error||'未知错误');
       $('#sAdminPwMsg').style.color='var(--danger)';
