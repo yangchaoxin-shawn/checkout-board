@@ -116,7 +116,35 @@
 
 ### Git
 
-- 分支 `iter/v1.2`，共 11 个 commit
+## v1.3 (2026-07-17) — 工程化 + 可靠性加固
+
+### 错误处理
+
+- **前端 28 处空 `catch(e){}` 补 `console.error` 日志**：gate/storage/sync/login/checkin/auth 模块全覆盖
+- **后端 2 处补 `print` 日志**：WAL 回退、campaign_goal 解析异常
+- 已有 toast 的用户可见性完整，无需新增
+
+### 同步队列
+
+- **指数退避**：重试间隔 5s→15s→30s→60s，`syncMeta` 持久化到 localStorage
+- **409 冲突检测**：服务端幂等冲突时本地自动丢弃，不堆积
+- **同步状态小圆点**：connBar 旁 8px 灰点 → 🟢全部同步 → 🟡有待同步
+- **connBar 离线计数**：精确到 N 次打卡 / M 天，不再按 day-key 数提示
+
+### 对抗性修复
+
+- **P0** `syncFallbackData` day 数组 → 拆逐条 `POST /api/checkin`，不再覆盖他人数据
+- **P1** `appendById`/`removeById` 加 key 级别本地锁，防止并发写覆盖
+- **P1** Token TTL 5 天（门禁 7 天），sync 前调 `/api/auth/check` 验证，过期自动弹门禁重填
+
+### 参数
+
+| 参数 | 值 | 说明 |
+|------|----|------|
+| Token TTL | 5 天 (432000s) | 比门禁短 2 天，安全边界 |
+| 门禁记忆 | 7 天 | 免密进入 |
+| 同步频率 | 30s | 恢复后最长等半分钟 |
+| 重试间隔 | 5s→15s→30s→60s | 指数退避 |
 
 ---
 
@@ -135,4 +163,4 @@
 - 外部依赖：0（纯 Python 标准库 + 零前端框架）
 - E2E 测试：31/31 PASS
 - 跨平台：Linux 生产 / Windows WSL / macOS 本地
-- 版本：v1.2（iter/v1.2 → main）
+- 版本：v1.3（iter/v1.3 → main）
