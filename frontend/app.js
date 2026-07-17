@@ -110,6 +110,11 @@ const PERSONAL = {
    server 模式：优先写服务端 JSON 文件；写入失败自动降级 localStorage 兜底 */
 const LS_PREFIX = 'bb_shared_';
 const LS_FALLBACK_PREFIX = 'bb_fallback_';  // 服务端失败时的本地缓存 key
+const SYNC_META_KEY = 'bb_sync_meta';
+const BACKOFF_MS = [5000, 15000, 30000, 60000];  // 重试间隔：5s→15s→30s→60s
+var syncMeta = {};  // 待同步 key 的重试状态（持久化到 localStorage）
+var syncMetaDirty = false;
+var SYNC_ENABLED = true;
 
 /* 服务端探活 */
 let serverOnline = false;
@@ -126,24 +131,68 @@ async function checkServerHealth(){
 }
 async function syncFallbackData(){
   if(!serverOnline || BACKEND_MODE!=='server') return;
-  // 扫描本地兜底数据，推送到服务端
-  for(let i=0; i<localStorage.length; i++){
-    const k = localStorage.key(i);
-    if(k && k.startsWith(LS_FALLBACK_PREFIX)){
-      const realKey = k.slice(LS_FALLBACK_PREFIX.length);
-      try{
-        const v = JSON.parse(localStorage.getItem(k));
-        await fetch(`${SERVER_URL}/api/data`, {
-          method:'POST', headers:{
-            'Content-Type':'application/json',
-            'Authorization':'Bearer '+(getStoredToken())
-          },
-          body: JSON.stringify({key:realKey, value:v})
-        });
-        localStorage.removeItem(k);  // 同步成功后清除本地备份
-      }catch(e){ console.error('[sync] fallback push failed', e); /* 同步失败保留本地，下次重试 */ }
+  if(!SYNC_ENABLED) return;
+  var token=getStoredToken();
+  if(!token) return;
+  // 收集待同步的 key（延迟扫描，避免每次全量遍历）
+  var pending=[];
+  for(var i=0; i<localStorage.length; i++){
+    var k=localStorage.key(i);
+    if(k && k.startsWith(LS_FALLBACK_PREFIX)) pending.push(k);
+  }
+  if(!pending.length) return;
+  var synced=0, skipped=0, now=Date.now();
+  for(var pi=0; pi<pending.length; pi++){
+    var k=pending[pi];
+    var meta=syncMeta[k]||{retries:0, lastTry:0};
+    // 指数退避：重试间隔递增
+    if(meta.lastTry && now-meta.lastTry < BACKOFF_MS[Math.min(meta.retries, BACKOFF_MS.length-1)]) continue;
+    var realKey=k.slice(LS_FALLBACK_PREFIX.length);
+    try{
+      var v=JSON.parse(localStorage.getItem(k));
+      var r=await fetch(SERVER_URL+'/api/data', {
+        method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+        body:JSON.stringify({key:realKey, value:v})
+      });
+      if(r.ok){
+        localStorage.removeItem(k);
+        delete syncMeta[k];
+        syncMetaDirty=true;
+        synced++;
+      }else if(r.status===409){
+        // 服务端已有相同数据（幂等冲突），本地丢弃
+        localStorage.removeItem(k);
+        delete syncMeta[k];
+        syncMetaDirty=true;
+        synced++;
+      }else{
+        syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+        syncMetaDirty=true;
+        skipped++;
+      }
+    }catch(e){
+      console.error('[sync] fallback push failed', e);
+      syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+      syncMetaDirty=true;
+      skipped++;
     }
   }
+  // 持久化 syncMeta（避免页面刷新丢失重试状态）
+  if(syncMetaDirty){
+    try{ localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta)); }catch(e){ console.error('[sync] persist meta failed', e); }
+    syncMetaDirty=false;
+  }
+  if(synced>0 && skipped===0) updateSyncDot('green');
+  else if(skipped>0) updateSyncDot('yellow');
+}
+// 从 localStorage 恢复待同步状态
+try{ syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY))||{}; }catch(e){ syncMeta={}; }
+// 同步状态指示点
+function updateSyncDot(color){
+  var dot=$('#syncDot');
+  if(!dot) return;
+  dot.style.backgroundColor=color==='green'?'#22c55e':color==='yellow'?'#eab308':'#ef4444';
+  dot.title=color==='green'?'已全部同步':'有数据等待同步';
 }
 
 const SHARED = {
