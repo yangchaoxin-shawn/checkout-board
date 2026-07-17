@@ -67,7 +67,7 @@ def get_db():
     try:
         conn.execute("PRAGMA journal_mode=WAL")
     except sqlite3.OperationalError:
-        pass
+        print("[db] WAL mode not available, using DELETE fallback")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))"
@@ -134,7 +134,7 @@ def generate_token() -> str:
 def verify_token(token: str) -> bool:
     try:
         ts_str, h = token.split(".")
-        if int(time.time()) - int(ts_str) > 86400:
+        if int(time.time()) - int(ts_str) > 432000:  # 5 天（门禁 7 天，短 2 天安全边界）
             return False
         expected = hashlib.sha256(f"{SECRET}:{ts_str}".encode()).hexdigest()[:16]
         return h == expected
@@ -711,6 +711,7 @@ def _campaign_goal(cfg):
         end = date(ty, 12, 31)
         return max(1, (end - start).days + 1)
     except Exception:
+        print("[cfg] campaign_goal parse failed, using default 171")
         return 171
 
 

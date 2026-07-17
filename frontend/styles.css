@@ -321,6 +321,7 @@
   .connbar.ok{display:block;background:var(--partner-soft);color:#0A7d6e;border-color:transparent}
   .connbar.info{display:block;background:var(--brand-soft);color:var(--brand);border-color:transparent}
   .connbar a{color:inherit;text-decoration:underline}
+  .sync-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#d1d5db;margin:0 6px;vertical-align:middle}
 
   /* ---------- 通用关闭按钮 ---------- */
   .modal{position:relative}

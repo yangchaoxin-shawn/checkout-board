@@ -14,13 +14,13 @@ function gateUnlocked(){
     var exp=localStorage.getItem(KEY_EXP);
     if(!exp || Date.now()>parseInt(exp,10)) return false;
     return localStorage.getItem(KEY)==='1';
-  }catch(e){ return false; }
+  }catch(e){ console.error('[gate] gateUnlocked read failed', e); return false; }
 }
 function gateRemember(){
   try{
     localStorage.setItem(KEY,'1');
     localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); // 7 天免门禁
-  }catch(e){}
+  }catch(e){ console.error('[gate] gateRemember write failed', e); }
 }
 function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.value='';gateInp.focus();}catch(e){}},60); }
 function gatePass(){ gateOv.classList.add('gate-hide'); document.body.style.overflow=''; }
@@ -31,11 +31,12 @@ async function gateServerAuth(pw){
     var r=await fetch(SERVER_URL+'/api/auth?password='+encodeURIComponent(pw), {cache:'no-store'});
     var d=await r.json();
     if(d && d.ok && d.token){
-      try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
+      try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){ console.error('[gate] save token failed', e); }
       return {ok:true, reason:'success'};
     }
     return {ok:false, reason:'wrong_pw'};
   }catch(e){
+    console.error('[gate] server auth unreachable', e);
     return {ok:false, reason:'unreachable'};
   }
 }
@@ -94,21 +95,26 @@ const PERSONAL = {
   async get(k){ try{
       if(CLAUDE){ const r=await window.storage.get(k,false); return r?JSON.parse(r.value):null; }
       const v=localStorage.getItem('bb_'+k); return v?JSON.parse(v):null;
-    }catch(e){ return null; } },
+    }catch(e){ console.error('[storage] personal get', e); return null; } },
   async set(k,v){ try{
       if(CLAUDE){ return await window.storage.set(k,JSON.stringify(v),false); }
       localStorage.setItem('bb_'+k,JSON.stringify(v)); return true;
-    }catch(e){ return null; } },
+    }catch(e){ console.error('[storage] personal set', e); return null; } },
   async del(k){ try{
       if(CLAUDE){ return await window.storage.delete(k,false); }
       localStorage.removeItem('bb_'+k); return true;
-    }catch(e){ return null; } }
+    }catch(e){ console.error('[storage] personal del', e); return null; } }
 };
 
 /* 共享数据（全员同步）。值以对象/数组存取。
    server 模式：优先写服务端 JSON 文件；写入失败自动降级 localStorage 兜底 */
 const LS_PREFIX = 'bb_shared_';
 const LS_FALLBACK_PREFIX = 'bb_fallback_';  // 服务端失败时的本地缓存 key
+const SYNC_META_KEY = 'bb_sync_meta';
+const BACKOFF_MS = [5000, 15000, 30000, 60000];  // 重试间隔：5s→15s→30s→60s
+var syncMeta = {};  // 待同步 key 的重试状态（持久化到 localStorage）
+var syncMetaDirty = false;
+var SYNC_ENABLED = true;
 
 /* 服务端探活 */
 let serverOnline = false;
@@ -119,29 +125,125 @@ async function checkServerHealth(){
     serverOnline = r.ok;
   }catch(e){
     serverOnline = false;
+    console.warn('[health] server unreachable', e.message);
   }
   updateConnBar();
 }
 async function syncFallbackData(){
   if(!serverOnline || BACKEND_MODE!=='server') return;
-  // 扫描本地兜底数据，推送到服务端
-  for(let i=0; i<localStorage.length; i++){
-    const k = localStorage.key(i);
-    if(k && k.startsWith(LS_FALLBACK_PREFIX)){
-      const realKey = k.slice(LS_FALLBACK_PREFIX.length);
-      try{
-        const v = JSON.parse(localStorage.getItem(k));
-        await fetch(`${SERVER_URL}/api/data`, {
-          method:'POST', headers:{
-            'Content-Type':'application/json',
-            'Authorization':'Bearer '+(getStoredToken())
-          },
-          body: JSON.stringify({key:realKey, value:v})
+  if(!SYNC_ENABLED) return;
+  var token=getStoredToken();
+  // Token 有效性检查：空或无效时标记状态，不静默回退
+  if(!token){
+    updateConnBar();
+    return;
+  }
+  try{
+    var tr=await fetch(SERVER_URL+'/api/auth/check', {headers:{'Authorization':'Bearer '+token}});
+    var td=await tr.json();
+    if(!td.ok){
+      console.warn('[sync] token expired');
+      // Token 过期但门禁记忆还在 → 引导用户重新输入密码
+      if(gateUnlocked()){
+        localStorage.removeItem(KEY_TOKEN);
+        gateErr.textContent='令牌已过期，请重新输入门禁密码';
+        gateErr.classList.add('show');
+        gateOpen();
+      }
+      updateConnBar();
+      return;
+    }
+  }catch(e){
+    console.warn('[sync] token check failed', e.message);
+  }
+  // 收集待同步的 key
+  var pending=[];
+  for(var i=0; i<localStorage.length; i++){
+    var k=localStorage.key(i);
+    if(k && k.startsWith(LS_FALLBACK_PREFIX)) pending.push(k);
+  }
+  if(!pending.length) return;
+  var synced=0, skipped=0, now=Date.now();
+  for(var pi=0; pi<pending.length; pi++){
+    var k=pending[pi];
+    var meta=syncMeta[k]||{retries:0, lastTry:0};
+    if(meta.lastTry && now-meta.lastTry < BACKOFF_MS[Math.min(meta.retries, BACKOFF_MS.length-1)]) continue;
+    var realKey=k.slice(LS_FALLBACK_PREFIX.length);
+    var isDayKey=realKey.startsWith('day:');
+    try{
+      var v=JSON.parse(localStorage.getItem(k));
+      if(isDayKey && Array.isArray(v)){
+        // day 数组 → 逐条通过 /api/checkin 推送（保证幂等+原子+counts 更新）
+        var allOk=true;
+        for(var vi=0; vi<v.length; vi++){
+          try{
+            var cr=await fetch(SERVER_URL+'/api/checkin', {
+              method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+              body:JSON.stringify({item:v[vi]})
+            });
+            var cd=await cr.json();
+            if(!cd.ok && !cd.dup) allOk=false;
+          }catch(e2){
+            console.error('[sync] day item push failed', e2);
+            allOk=false;
+          }
+          if(!allOk) break;
+        }
+        if(allOk){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else{
+          syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+          syncMetaDirty=true;
+          skipped++;
+        }
+      }else{
+        // 非 day 数组 → 正常走 /api/data
+        var r=await fetch(SERVER_URL+'/api/data', {
+          method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+          body:JSON.stringify({key:realKey, value:v})
         });
-        localStorage.removeItem(k);  // 同步成功后清除本地备份
-      }catch(e){ /* 同步失败保留本地，下次重试 */ }
+        if(r.ok){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else if(r.status===409){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else{
+          syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+          syncMetaDirty=true;
+          skipped++;
+        }
+      }
+    }catch(e){
+      console.error('[sync] fallback push failed', e);
+      syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+      syncMetaDirty=true;
+      skipped++;
     }
   }
+  if(syncMetaDirty){
+    try{ localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta)); }catch(e){ console.error('[sync] persist meta failed', e); }
+    syncMetaDirty=false;
+  }
+  if(synced>0 && skipped===0) updateSyncDot('green');
+  else if(skipped>0) updateSyncDot('yellow');
+  updateConnBar();
+}
+// 从 localStorage 恢复待同步状态
+try{ syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY))||{}; }catch(e){ syncMeta={}; }
+// 同步状态指示点
+function updateSyncDot(color){
+  var dot=$('#syncDot');
+  if(!dot) return;
+  dot.style.backgroundColor=color==='green'?'#22c55e':color==='yellow'?'#eab308':'#ef4444';
+  dot.title=color==='green'?'已全部同步':'有数据等待同步';
 }
 
 const SHARED = {
@@ -151,7 +253,7 @@ const SHARED = {
         try{
           const r = await fetch(`${SERVER_URL}/api/data?key=${encodeURIComponent(k)}`);
           if(r.ok){ const d = await r.json(); return d.value !== undefined ? d.value : null; }
-        }catch(e){}
+        }catch(e){ console.error('[shared] server get error', e); }
         // 服务端不可用：尝试读本地兜底
         const fb = localStorage.getItem(LS_FALLBACK_PREFIX + k);
         if(fb) return JSON.parse(fb);
@@ -168,7 +270,7 @@ const SHARED = {
       // local: localStorage 持久化，不再用内存
       const v = localStorage.getItem(LS_PREFIX + k);
       return v ? JSON.parse(v) : null;
-    }catch(e){ return null; } },
+    }catch(e){ console.error('[shared] get failed', e); return null; } },
   async set(k,v){ try{
       if(BACKEND_MODE==='server'){
         // 始终先存本地兜底
@@ -194,6 +296,7 @@ const SHARED = {
         }catch(e){
           // 已经是 JS Error 或 dup 对象，向上传播
           if(e && e.dup) throw e;
+          console.error('[shared] set server failed', e);
         }
         // 服务端失败：保留本地兜底，标记状态
         updateConnBar();
@@ -229,14 +332,14 @@ const SHARED = {
       if(BACKEND_MODE==='claude'){ return await window.storage.delete(k,true); }
       localStorage.removeItem(LS_PREFIX + k);
       return true;
-    }catch(e){ return null; } },
+    }catch(e){ console.error('[shared] get failed', e); return null; } },
   async list(prefix){ try{
       if(BACKEND_MODE==='server'){
         let keys = [];
         try{
           const r = await fetch(`${SERVER_URL}/api/list?prefix=${encodeURIComponent(prefix||'')}`);
           if(r.ok){ const d = await r.json(); keys = d.keys || []; }
-        }catch(e){}
+        }catch(e){ console.error('[shared] list server', e); }
         // 合并本地兜底的 key
         for(let i=0; i<localStorage.length; i++){
           const k = localStorage.key(i);
@@ -263,7 +366,7 @@ const SHARED = {
         }
       }
       return keys;
-    }catch(e){ return []; } }
+    }catch(e){ console.error('[shared] list failed', e); return []; } }
 };
 
 /* 统一接口：shared=true→共享库；false→本设备身份。其余业务代码无需改动 */
@@ -274,18 +377,32 @@ const S = {
   list:(prefix,shared)=> shared ? SHARED.list(prefix) : Promise.resolve([])
 };
 // 追加进共享数组键，按 id 合并以降低并发覆盖
+/* ============ 数据操作（含本地锁）============ */
+var appendLocks={};  // key 级别本地锁：防止并发 appendById/removeById 读-改-写覆盖
 async function appendById(key, item){
-  let arr = (await S.get(key,true)) || [];
-  const i = arr.findIndex(x=>x.id===item.id);
-  if(i>=0) arr[i]=item; else arr.push(item);
-  await S.set(key, arr, true);
-  return arr;
+  while(appendLocks[key]) await new Promise(function(r){ setTimeout(r, 50); });
+  appendLocks[key]=true;
+  try{
+    let arr = (await S.get(key,true)) || [];
+    const i = arr.findIndex(x=>x.id===item.id);
+    if(i>=0) arr[i]=item; else arr.push(item);
+    await S.set(key, arr, true);
+    return arr;
+  }finally{
+    appendLocks[key]=false;
+  }
 }
 async function removeById(key, id){
-  let arr = (await S.get(key,true)) || [];
-  arr = arr.filter(x=>x.id!==id);
-  await S.set(key, arr, true);
-  return arr;
+  while(appendLocks[key]) await new Promise(function(r){ setTimeout(r, 50); });
+  appendLocks[key]=true;
+  try{
+    let arr = (await S.get(key,true)) || [];
+    arr = arr.filter(x=>x.id!==id);
+    await S.set(key, arr, true);
+    return arr;
+  }finally{
+    appendLocks[key]=false;
+  }
 }
 
 /* ============ helpers ============ */
@@ -320,13 +437,13 @@ function isSuperAdmin(){ return me && me.name === config.superAdmin; }
 // 超管二次验证：sessionStorage 标记，关闭页面自动失效
 var ADMIN_VERIFIED_KEY='bb_admin_ok';
 function isAdminVerified(){
-  try{ return sessionStorage.getItem(ADMIN_VERIFIED_KEY)==='1'; }catch(e){ return false; }
+  try{ return sessionStorage.getItem(ADMIN_VERIFIED_KEY)==='1'; }catch(e){ console.error('[auth] admin verification check', e); return false; }
 }
 function markAdminVerified(){
-  try{ sessionStorage.setItem(ADMIN_VERIFIED_KEY,'1'); }catch(e){}
+  try{ sessionStorage.setItem(ADMIN_VERIFIED_KEY,'1'); }catch(e){ console.error('[auth] markAdminVerified', e); }
 }
 function clearAdminVerified(){
-  try{ sessionStorage.removeItem(ADMIN_VERIFIED_KEY); }catch(e){}
+  try{ sessionStorage.removeItem(ADMIN_VERIFIED_KEY); }catch(e){ console.error('[auth] clearAdminVerified', e); }
 }
 // 打开超管验证弹窗，验证成功后执行 callback
 var adminCb=null;
@@ -404,16 +521,43 @@ function updateConnBar(){
   const cb=$('#connBar'); if(!cb) return;
   if(BACKEND_MODE==='server'){
     if(serverOnline){
-      cb.className='connbar ok'; cb.textContent='🟢 已连接团队服务器 · 数据持久化 · 全员实时同步';
+      var pendingItems=0, pendingDays=0;
+      // 统计在线 pending 数据
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i);
+        if(k && k.startsWith(LS_FALLBACK_PREFIX)){
+          pendingDays++;
+          try{ var arr=JSON.parse(localStorage.getItem(k)); if(Array.isArray(arr)) pendingItems+=arr.length; else pendingItems++; }
+          catch(e){ pendingItems++; }
+        }
+      }
+      if(pendingItems>0){
+        // 检查 token 是否有效
+        var tmpToken=getStoredToken();
+        if(!tmpToken){
+          cb.className='connbar warn';
+          cb.textContent='🟡 已连接服务端，但登录状态已过期 · 请重新进入门禁';
+        }else{
+          cb.className='connbar warn';
+          cb.textContent='🟡 已连接服务端，但 '+pendingItems+' 次本地数据（'+pendingDays+' 天）正在同步中…';
+        }
+      }else{
+        cb.className='connbar ok'; cb.textContent='🟢 已连接团队服务器 · 数据持久化 · 全员实时同步';
+      }
     }else{
-      // 检查是否有未同步的本地兜底数据
-      let pending=0;
-      for(let i=0;i<localStorage.length;i++){
-        if(localStorage.key(i).startsWith(LS_FALLBACK_PREFIX)) pending++;
+      // 离线统计
+      var pendingItems2=0, pendingDays2=0;
+      for(var i2=0;i2<localStorage.length;i2++){
+        var k2=localStorage.key(i2);
+        if(k2 && k2.startsWith(LS_FALLBACK_PREFIX)){
+          pendingDays2++;
+          try{ var arr2=JSON.parse(localStorage.getItem(k2)); if(Array.isArray(arr2)) pendingItems2+=arr2.length; else pendingItems2++; }
+          catch(e){ pendingItems2++; }
+        }
       }
       cb.className='connbar warn';
-      cb.textContent = pending
-        ? '🟡 服务器离线 · '+pending+' 条打卡已暂存本地，恢复后自动同步'
+      cb.textContent = pendingItems2>0
+        ? '🟡 服务器离线 · '+pendingItems2+' 次打卡待同步（共 '+pendingDays2+' 天），恢复后自动同步'
         : '🟡 服务器离线 · 数据暂存本地，恢复后自动同步';
     }
   }else if(BACKEND_MODE==='feishu'){ cb.className='connbar ok'; cb.textContent='🟢 已连接飞书多维表格 · 全员实时同步'; }
@@ -461,7 +605,7 @@ async function refreshShared(){
     await loadDay(todayStr());
     if(curFilterDate && curFilterDate!==todayStr()) await loadDay(curFilterDate);
     await renderAll();
-  }catch(e){}
+  }catch(e){ console.error('[sync] refreshShared failed', e); }
   refreshing=false;
 }
 
@@ -759,7 +903,7 @@ async function doLogin(){
     try{
       const r=await S.get('roster:'+name,true);
       if(r && r.name===name) exists=true;
-    }catch(e){}
+    }catch(e){ console.error('[login] roster fallback get', e); }
   }
 
   if(!exists){
@@ -837,6 +981,7 @@ async function submitCheckin(){
         toast('提交失败：'+(d.error||'未知错误'));
       }
     }catch(e){
+      console.error('[checkin] submit server failed', e);
       // 网络错误：降级到本地 appendById 兜底（含 localStorage fallback）
       try{
         dayCache[ds]=(await appendById('day:'+ds,item)).sort((a,b)=>b.ts-a.ts);
@@ -849,6 +994,7 @@ async function submitCheckin(){
         await renderAll();
         toast('战果已暂存本地（服务端暂不可达）');
       }catch(fbErr){
+        console.error('[checkin] fallback appendById failed', fbErr);
         toast('提交失败，请检查网络后重试');
       }
     }
@@ -862,6 +1008,7 @@ async function submitCheckin(){
         releaseSubmitBtn();
         return;
       }
+      console.error('[checkin] submit non-server failed', e);
       throw e;
     }
     await appendById('member:'+me.name,item);
@@ -900,6 +1047,7 @@ async function delCheckin(id,date){
         toast('删除失败：'+(d.error||'未知错误'));
       }
     }catch(e){
+      console.error('[checkin] del server failed', e);
       toast('网络错误，请重试');
     }
   }else{
@@ -1038,8 +1186,8 @@ async function changePassword(){
     var d=await r.json();
     if(d && d.ok){
       // 更新 Token，但清空门禁记忆（下次需要重新输入新密码）
-      if(d.token) try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
-      try{ localStorage.removeItem(KEY); localStorage.removeItem(KEY_EXP); }catch(e){}
+      if(d.token) try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){ console.error('[auth] changePw save token', e); }
+      try{ localStorage.removeItem(KEY); localStorage.removeItem(KEY_EXP); }catch(e){ console.error('[auth] changePw clear gate', e); }
       // 关闭所有弹窗
       document.querySelectorAll('.overlay.on').forEach(function(o){ o.classList.remove('on'); });
       closeLogin();
@@ -1063,6 +1211,7 @@ async function changePassword(){
       $('#sPwMsg').style.color='var(--danger)';
     }
   }catch(e){
+    console.error('[auth] changePassword fetch failed', e);
     $('#sPwMsg').textContent='网络错误，请重试';
     $('#sPwMsg').style.color='var(--danger)';
   }
@@ -1097,6 +1246,7 @@ async function changeAdminPassword(){
       $('#sAdminPwMsg').style.color='var(--danger)';
     }
   }catch(e){
+    console.error('[auth] changeAdminPassword fetch failed', e);
     $('#sAdminPwMsg').textContent='网络错误，请重试';
     $('#sAdminPwMsg').style.color='var(--danger)';
   }
