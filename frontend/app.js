@@ -334,13 +334,13 @@ function requireAdminAuth(callback){
   if(!isSuperAdmin()){ toast('仅超级管理员可执行此操作'); return; }
   if(isAdminVerified()){ callback(); return; }
   adminCb=callback;
-  $('#adminPwInput').value=''; $('#adminPwErr').style.visibility='hidden';
+  $('#adminPwInput').value=''; $('#adminPwErr').classList.remove('show');
   $('#adminPwOverlay').classList.add('on');
   setTimeout(function(){try{$('#adminPwInput').focus();}catch(e){}},200);
 }
 async function doAdminAuth(){
   var pw=$('#adminPwInput').value.trim();
-  if(!pw){ $('#adminPwErr').textContent='请输入超管密码'; $('#adminPwErr').style.visibility='visible'; return; }
+  if(!pw){ $('#adminPwErr').textContent='请输入超管密码'; $('#adminPwErr').classList.add('show'); return; }
   try{
     var base=SERVER_URL.replace(/\/+$/,'');
     var token=getStoredToken();
@@ -356,12 +356,12 @@ async function doAdminAuth(){
       if(adminCb){ var cb=adminCb; adminCb=null; cb(); }
     }else{
       $('#adminPwErr').textContent='超管密码不正确';
-      $('#adminPwErr').style.visibility='visible';
+      $('#adminPwErr').classList.add('show');
       $('#adminPwInput').value=''; try{$('#adminPwInput').focus();}catch(e){}
     }
   }catch(e){
     $('#adminPwErr').textContent='网络错误，请重试';
-    $('#adminPwErr').style.visibility='visible';
+    $('#adminPwErr').classList.add('show');
   }
 }
 
