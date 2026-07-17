@@ -646,28 +646,17 @@ function fillMemberFilter(){
   if(!list) return;
   const cur=(typeof curFilterMember!=='undefined')?curFilterMember:'';
   list.innerHTML='';
-  // 全部成员（用占位 av 保持文字对齐）
+  // 全部成员
   const allLi=document.createElement('li');
   allLi.dataset.value='';
-  const allAv=document.createElement('span');
-  allAv.className='av';
-  allAv.textContent='·';
-  allAv.style.background='transparent';
-  const allTxt=document.createElement('span');
-  allTxt.textContent='全部成员';
-  allLi.appendChild(allAv); allLi.appendChild(allTxt);
+  allLi.textContent='全部成员';
   allLi.onclick=function(){ selectMemberFilter(''); };
   list.appendChild(allLi);
   // 各成员
   roster.forEach(r=>{
     const li=document.createElement('li');
     li.dataset.value=r.name;
-    const av=document.createElement('span');
-    av.className='av';
-    av.textContent=r.avatar||r.name.slice(0,1);
-    const txt=document.createElement('span');
-    txt.textContent=r.name;
-    li.appendChild(av); li.appendChild(txt);
+    li.textContent=r.name;
     li.onclick=function(){ selectMemberFilter(r.name); };
     list.appendChild(li);
   });
