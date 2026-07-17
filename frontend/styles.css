@@ -224,12 +224,12 @@
   .dd-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
   .dd-arrow{fill:var(--muted);margin-left:auto;transition:transform .15s}
   .dd-trigger.open .dd-arrow{transform:rotate(180deg);fill:var(--brand)}
-  .dd-panel{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg);min-width:160px;padding:6px;z-index:50;max-height:280px;overflow-y:auto;animation:dd-in .15s ease-out}
+  .dd-panel{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow-lg);min-width:140px;padding:4px;z-index:50;max-height:280px;overflow-y:auto;animation:dd-in .15s ease-out}
   @keyframes dd-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   .dd-list{list-style:none;padding:0;margin:0}
-  .dd-list li{padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13.5px;color:var(--text);font-weight:600;transition:.12s;display:flex;align-items:center;gap:8px}
+  .dd-list li{padding:6px 10px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--text);font-weight:600;transition:.12s;display:flex;align-items:center;gap:7px;line-height:1.2}
   .dd-list li:hover,.dd-list li.sel{background:var(--brand-soft);color:var(--brand)}
-  .dd-list li .av{width:24px;height:24px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:13px;flex:0 0 auto}
+  .dd-list li .av{width:20px;height:20px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:11px;flex:0 0 auto}
   .filters .clear{color:var(--brand);font-size:12.5px;padding:8px 10px;font-weight:700;border:1px solid var(--border);border-radius:11px;background:#fff}
   .filters .clear:hover{background:var(--brand-soft)}
 

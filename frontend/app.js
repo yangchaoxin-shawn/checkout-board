@@ -646,10 +646,16 @@ function fillMemberFilter(){
   if(!list) return;
   const cur=(typeof curFilterMember!=='undefined')?curFilterMember:'';
   list.innerHTML='';
-  // 全部成员
+  // 全部成员（用占位 av 保持文字对齐）
   const allLi=document.createElement('li');
   allLi.dataset.value='';
-  allLi.textContent='全部成员';
+  const allAv=document.createElement('span');
+  allAv.className='av';
+  allAv.textContent='·';
+  allAv.style.background='transparent';
+  const allTxt=document.createElement('span');
+  allTxt.textContent='全部成员';
+  allLi.appendChild(allAv); allLi.appendChild(allTxt);
   allLi.onclick=function(){ selectMemberFilter(''); };
   list.appendChild(allLi);
   // 各成员
