@@ -667,6 +667,7 @@ function closeLogin(){
     $('#meName').textContent='访客';
     $('#switchBtn').textContent='登录';
     $('#meChip').title='点击登录进行打卡';
+    updateSettingsBtn();  // 同步隐藏设置/成员/导出按钮
   }
 }
 function showMe(){ $('#meChip').style.display='flex'; $('#meAv').textContent=me.avatar; $('#meName').textContent=me.name; $('#switchBtn').textContent='切换'; $('#meChip').title='点击切换用户'; updateSettingsBtn(); }
@@ -1006,6 +1007,12 @@ async function changePassword(){
       setTimeout(function(){
         me=null; S.del('me',false);
         clearAdminVerified();
+        // 立即把 UI 切回访客态（按钮/芯片/标题全部刷新）
+        $('#meAv').textContent='👤';
+        $('#meName').textContent='访客';
+        $('#switchBtn').textContent='登录';
+        $('#meChip').title='点击登录进行打卡';
+        updateSettingsBtn();
         gateOpen();
       }, 800);
     }else{
