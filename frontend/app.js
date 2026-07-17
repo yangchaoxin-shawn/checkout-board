@@ -1197,6 +1197,17 @@ function wire(){
   document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{
     if(e.target===o){ o.classList.remove('on'); if(o.id==='loginOverlay') closeLogin(); }
   }));
+  // Escape 键关闭当前打开的 overlay（关最上层的）
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){
+      const all=document.querySelectorAll('.overlay.on');
+      const topOv=all[all.length-1];
+      if(topOv){
+        topOv.classList.remove('on');
+        if(topOv.id==='loginOverlay') closeLogin();
+      }
+    }
+  });
 
   $('#fDate').onchange=async e=>{ curFilterDate=e.target.value||todayStr(); await loadDay(curFilterDate); renderReport(); };
   $('#fMember').onchange=e=>{ curFilterMember=e.target.value; renderReport(); };
