@@ -142,7 +142,14 @@ async function syncFallbackData(){
     var tr=await fetch(SERVER_URL+'/api/auth/check', {headers:{'Authorization':'Bearer '+token}});
     var td=await tr.json();
     if(!td.ok){
-      console.warn('[sync] token expired, sync deferred');
+      console.warn('[sync] token expired');
+      // Token 过期但门禁记忆还在 → 引导用户重新输入密码
+      if(gateUnlocked()){
+        localStorage.removeItem(KEY_TOKEN);
+        gateErr.textContent='令牌已过期，请重新输入门禁密码';
+        gateErr.classList.add('show');
+        gateOpen();
+      }
       updateConnBar();
       return;
     }
