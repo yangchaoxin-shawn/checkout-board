@@ -1,6 +1,6 @@
 # 迭代路线图 · 每日作战打卡看板
 
-> 当前版本：v1.1（开发中，iter/v1.1 分支）
+> 当前版本：v1.2（开发完成）
 
 ---
 
@@ -30,7 +30,35 @@ Excel 导出改用 Token（Authorization header）鉴权。
 
 ---
 
-## P1 · 工程化与错误处理（下一轮）
+## v1.2 · 超管身份强化 + UI 一致（已开发完成）
+
+### ■ ✅ 超管二次验证
+**变更：** 超管密码与门禁密码独立存储（`_admin_password`），新增 `POST /api/auth/admin` 独立验证接口。
+打开设置/管理成员/修改密码前，需先输入超管密码，验证状态存 `sessionStorage`，关闭页面自动失效。
+**涉及文件：** `backend/api.py`、`backend/dev.py`、`frontend/app.js`、`frontend/index.html`
+
+### ■ ✅ 修改密码后安全退出
+**变更：** 修改门禁密码 → 清空登录态（`me=null`）→ 回到门禁页重新输入新密码登录。
+修改超管密码 → 清空 `sessionStorage` 验证标记 → 下次操作需重新验证。
+**涉及文件：** `frontend/app.js`
+
+### ■ ✅ 按钮权限逻辑修复
+**变更：** 修复 `closeLogin()` 未调用 `updateSettingsBtn()` 导致的按钮残留。
+修复 `changePassword()` 后 UI 未立即刷新为访客态。
+新增 Escape 键关闭 Overlay 时正确走 `closeLogin()` 路径。
+**涉及文件：** `frontend/app.js`
+
+### ■ ✅ UI 风格统一（方案 A）
+**变更：**
+- 超管验证弹窗：去掉内联 style，统一使用 `.field` 主题，modal 宽度从 380→420px
+- 成员过滤器下拉：从浏览器原生 `<select>` 改为自定义 div 组件（圆角/阴影/hover/动画）
+- 修复 `adminPwErr` 被 `.err { display:none }` 吞掉、错误信息始终不可见的隐藏 bug
+- 合并重复的 Escape handler
+**涉及文件：** `frontend/app.js`、`frontend/index.html`、`frontend/styles.css`
+
+---
+
+## P1 · 工程化与错误处理（下一轮 v1.3）
 
 ### ■ 错误处理补全
 **现状：** 大量 `catch(e){}` 空捕获，静默吞异常，排查问题困难。
@@ -91,15 +119,16 @@ Excel 导出改用 Token（Authorization header）鉴权。
 | Phase 4 | 前后端分离 + 代码清理 | ✅ |
 | Git | v1.0 版本管理 + Commit 规范 + 分支策略 | ✅ |
 | **v1.1** | **安全加固迭代（密码运行时修改 + Token 鉴权强制 + 打卡幂等性）** | **✅ 开发完成** |
+| **v1.2** | **超管身份强化（二次验证 + 修改密码安全退出 + UI 一致）** | **✅ 开发完成** |
 
 ---
 
 ## 版本节奏建议
 
 ```
-v1.0 ──→ v1.1（P0 安全加固 ✅）──→ v1.2（P1 工程化）──→ v1.3（P2 数据管理）
-                                      ↓
-                                长期迭代 P3
+v1.0 ───→ v1.1（P0 安全加固 ✅）───→ v1.2（超管身份强化 ✅）───→ v1.3（P1 工程化）
+                                         ↓
+                                   长期迭代 P2 / P3
 ```
 
 每个版本迭代周期建议：**1 个迭代 = 1 批 P0/P1 任务**，完成后合并 main + 打 Tag。

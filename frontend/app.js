@@ -22,7 +22,7 @@ function gateRemember(){
     localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); // 7 天免门禁
   }catch(e){}
 }
-function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.focus();}catch(e){}},60); }
+function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.value='';gateInp.focus();}catch(e){}},60); }
 function gatePass(){ gateOv.classList.add('gate-hide'); document.body.style.overflow=''; }
 // 向服务端验证密码并获取 Token。返回 {ok, reason}，reason 为 'wrong_pw' 或 'unreachable'
 async function gateServerAuth(pw){
@@ -317,6 +317,53 @@ let curFilterMember='';
 
 /* ============ 权限 ============ */
 function isSuperAdmin(){ return me && me.name === config.superAdmin; }
+// 超管二次验证：sessionStorage 标记，关闭页面自动失效
+var ADMIN_VERIFIED_KEY='bb_admin_ok';
+function isAdminVerified(){
+  try{ return sessionStorage.getItem(ADMIN_VERIFIED_KEY)==='1'; }catch(e){ return false; }
+}
+function markAdminVerified(){
+  try{ sessionStorage.setItem(ADMIN_VERIFIED_KEY,'1'); }catch(e){}
+}
+function clearAdminVerified(){
+  try{ sessionStorage.removeItem(ADMIN_VERIFIED_KEY); }catch(e){}
+}
+// 打开超管验证弹窗，验证成功后执行 callback
+var adminCb=null;
+function requireAdminAuth(callback){
+  if(!isSuperAdmin()){ toast('仅超级管理员可执行此操作'); return; }
+  if(isAdminVerified()){ callback(); return; }
+  adminCb=callback;
+  $('#adminPwInput').value=''; $('#adminPwErr').classList.remove('show');
+  $('#adminPwOverlay').classList.add('on');
+  setTimeout(function(){try{$('#adminPwInput').focus();}catch(e){}},200);
+}
+async function doAdminAuth(){
+  var pw=$('#adminPwInput').value.trim();
+  if(!pw){ $('#adminPwErr').textContent='请输入超管密码'; $('#adminPwErr').classList.add('show'); return; }
+  try{
+    var base=SERVER_URL.replace(/\/+$/,'');
+    var token=getStoredToken();
+    var r=await fetch(base+'/api/auth/admin', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({password:pw})
+    });
+    var d=await r.json();
+    if(d && d.ok){
+      markAdminVerified();
+      $('#adminPwOverlay').classList.remove('on');
+      if(adminCb){ var cb=adminCb; adminCb=null; cb(); }
+    }else{
+      $('#adminPwErr').textContent='超管密码不正确';
+      $('#adminPwErr').classList.add('show');
+      $('#adminPwInput').value=''; try{$('#adminPwInput').focus();}catch(e){}
+    }
+  }catch(e){
+    $('#adminPwErr').textContent='网络错误，请重试';
+    $('#adminPwErr').classList.add('show');
+  }
+}
 
 /* ============ init ============ */
 (async function init(){
@@ -595,9 +642,52 @@ async function renderReport(){
 }
 function fmtTime(ts){ const d=new Date(ts); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function fillMemberFilter(){
-  const sel=$('#fMember'); const cur=sel.value;
-  sel.innerHTML='<option value="">全部成员</option>'+roster.map(r=>`<option value="${esc(r.name)}">${r.avatar||''} ${esc(r.name)}</option>`).join('');
-  sel.value=cur;
+  const list=$('#ddList');
+  if(!list) return;
+  const cur=(typeof curFilterMember!=='undefined')?curFilterMember:'';
+  list.innerHTML='';
+  // 全部成员
+  const allLi=document.createElement('li');
+  allLi.dataset.value='';
+  allLi.textContent='全部成员';
+  allLi.onclick=function(){ selectMemberFilter(''); };
+  list.appendChild(allLi);
+  // 各成员
+  roster.forEach(r=>{
+    const li=document.createElement('li');
+    li.dataset.value=r.name;
+    li.textContent=r.name;
+    li.onclick=function(){ selectMemberFilter(r.name); };
+    list.appendChild(li);
+  });
+  // 同步当前选中态
+  highlightDDSelected(cur);
+  // 同步 trigger label
+  const lbl=$('#ddLabel');
+  if(lbl) lbl.textContent=cur||'全部成员';
+}
+function highlightDDSelected(value){
+  const items=document.querySelectorAll('#ddList li');
+  items.forEach(li=>{
+    li.classList.toggle('sel', li.dataset.value===value);
+  });
+}
+function selectMemberFilter(value){
+  curFilterMember=value;
+  $('#fMember').value=value;  // 保持原 select 同步，便于兼容代码读取
+  $('#ddLabel').textContent=value||'全部成员';
+  highlightDDSelected(value);
+  closeDD();
+  renderReport();
+}
+function toggleDD(){
+  const panel=$('#ddPanel'), trg=$('#ddTrigger');
+  if(panel.hidden){ panel.hidden=false; trg.classList.add('open'); trg.setAttribute('aria-expanded','true'); }
+  else closeDD();
+}
+function closeDD(){
+  const panel=$('#ddPanel'), trg=$('#ddTrigger');
+  if(panel){ panel.hidden=true; trg.classList.remove('open'); trg.setAttribute('aria-expanded','false'); }
 }
 
 /* ============ login ============ */
@@ -620,6 +710,7 @@ function closeLogin(){
     $('#meName').textContent='访客';
     $('#switchBtn').textContent='登录';
     $('#meChip').title='点击登录进行打卡';
+    updateSettingsBtn();  // 同步隐藏设置/成员/导出按钮
   }
 }
 function showMe(){ $('#meChip').style.display='flex'; $('#meAv').textContent=me.avatar; $('#meName').textContent=me.name; $('#switchBtn').textContent='切换'; $('#meChip').title='点击切换用户'; updateSettingsBtn(); }
@@ -877,16 +968,14 @@ async function exportCSV(){
 
 /* ============ settings ============ */
 function openSettings(){
-  if(!isSuperAdmin()){
-    toast('仅超级管理员可以修改设置');
-    return;
-  }
-  $('#sTeam').value=config.team; $('#sDate').value=config.target;
-  $('#sStart').value=config.start||'2026-07-13'; $('#sDoc').value=config.doc||'';
-  $('#sSuperAdmin').value='';
-  applyConfig();  // 自动同步 sSuperAdminLabel
-  updateGoalPreview();
-  $('#settingsOverlay').classList.add('on');
+  requireAdminAuth(function(){
+    $('#sTeam').value=config.team; $('#sDate').value=config.target;
+    $('#sStart').value=config.start||'2026-07-13'; $('#sDoc').value=config.doc||'';
+    $('#sSuperAdmin').value='';
+    applyConfig();
+    updateGoalPreview();
+    $('#settingsOverlay').classList.add('on');
+  });
 }
 async function saveSettings(){
   if(!isSuperAdmin()) return;
@@ -932,6 +1021,10 @@ async function saveSettings(){
 /* ============ 修改门禁密码（超管权限）============ */
 async function changePassword(){
   if(!isSuperAdmin()){ toast('仅超级管理员可以修改密码'); return; }
+  if(!isAdminVerified()){
+    requireAdminAuth(function(){ changePassword(); });
+    return;
+  }
   var newPw=$('#sPassword').value.trim();
   if(newPw.length<2){ $('#sPwMsg').textContent='密码至少 2 个字符'; $('#sPwMsg').style.color='var(--danger)'; return; }
   var token=getStoredToken();
@@ -944,13 +1037,27 @@ async function changePassword(){
     });
     var d=await r.json();
     if(d && d.ok){
-      // 更新本地存储的 Token 和门禁缓存
+      // 更新 Token，但清空门禁记忆（下次需要重新输入新密码）
       if(d.token) try{ localStorage.setItem(KEY_TOKEN, d.token); }catch(e){}
-      try{ localStorage.setItem(KEY,'1'); localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); }catch(e){}
+      try{ localStorage.removeItem(KEY); localStorage.removeItem(KEY_EXP); }catch(e){}
+      // 关闭所有弹窗
+      document.querySelectorAll('.overlay.on').forEach(function(o){ o.classList.remove('on'); });
+      closeLogin();
       $('#sPassword').value='';
-      $('#sPwMsg').textContent='✅ 密码修改成功';
-      $('#sPwMsg').style.color='var(--success)';
-      toast('门禁密码已修改，新密码即时生效');
+      $('#sPwMsg').textContent='';
+      toast('门禁密码已修改，请重新用新密码登录');
+      // 清除当前登录状态，弹出登录页
+      setTimeout(function(){
+        me=null; S.del('me',false);
+        clearAdminVerified();
+        // 立即把 UI 切回访客态（按钮/芯片/标题全部刷新）
+        $('#meAv').textContent='👤';
+        $('#meName').textContent='访客';
+        $('#switchBtn').textContent='登录';
+        $('#meChip').title='点击登录进行打卡';
+        updateSettingsBtn();
+        gateOpen();
+      }, 800);
     }else{
       $('#sPwMsg').textContent='修改失败：'+(d.error||'未知错误');
       $('#sPwMsg').style.color='var(--danger)';
@@ -961,19 +1068,50 @@ async function changePassword(){
   }
 }
 
-/* ============ 成员管理（超级管理员）============ */
-function openMembers(){
-  if(!isSuperAdmin()){
-    toast('仅超级管理员可以管理成员');
+/* ============ 修改超管密码 ============ */
+async function changeAdminPassword(){
+  if(!isSuperAdmin()){ toast('仅超级管理员可以修改超管密码'); return; }
+  if(!isAdminVerified()){
+    requireAdminAuth(function(){ changeAdminPassword(); });
     return;
   }
-  (async ()=>{
-    await loadRoster();
-    // 空列表时重试一次（可能是首次启动数据未就绪），不再白等
-    if(!roster.length){ await new Promise(r=>setTimeout(r,500)); await loadRoster(); }
-    renderMemberList();
-  })();
-  $('#memberOverlay').classList.add('on');
+  var newPw=$('#sAdminPw').value.trim();
+  if(newPw.length<2){ $('#sAdminPwMsg').textContent='密码至少 2 个字符'; $('#sAdminPwMsg').style.color='var(--danger)'; return; }
+  var token=getStoredToken();
+  if(!token){ $('#sAdminPwMsg').textContent='请先通过门禁登录'; $('#sAdminPwMsg').style.color='var(--danger)'; return; }
+  try{
+    var base=SERVER_URL.replace(/\/+$/,'');
+    var r=await fetch(base+'/api/admin/password', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({password:newPw})
+    });
+    var d=await r.json();
+    if(d && d.ok){
+      $('#sAdminPw').value='';
+      $('#sAdminPwMsg').textContent='✅ 超管密码修改成功';
+      $('#sAdminPwMsg').style.color='var(--success)';
+      clearAdminVerified();  // 清空验证标记，下次需要重新验证
+      toast('超管密码已修改，下次操作需要重新验证');
+    }else{
+      $('#sAdminPwMsg').textContent='修改失败：'+(d.error||'未知错误');
+      $('#sAdminPwMsg').style.color='var(--danger)';
+    }
+  }catch(e){
+    $('#sAdminPwMsg').textContent='网络错误，请重试';
+    $('#sAdminPwMsg').style.color='var(--danger)';
+  }
+}
+
+/* ============ 成员管理（超级管理员）============ */
+function openMembers(){
+  requireAdminAuth(function(){
+    (async ()=>{
+      await loadRoster();
+      if(!roster.length){ await new Promise(r=>setTimeout(r,500)); await loadRoster(); }
+      renderMemberList();
+    })();
+    $('#memberOverlay').classList.add('on');
+  });
 }
 async function addMember(){
   if(!isSuperAdmin()) return;
@@ -1065,13 +1203,25 @@ function wire(){
 
   $('#settingsBtn').onclick=openSettings;
   $('#memberBtn').onclick=openMembers;
+  // 超管验证弹窗
+  var apwGo=$('#adminPwGo'); if(apwGo) apwGo.onclick=doAdminAuth;
+  var apwInp=$('#adminPwInput'); if(apwInp) apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') doAdminAuth(); });
   const eb=$('#exportBtn'); if(eb) eb.onclick=exportCSV;
   $('#sSave').onclick=saveSettings;
   $('#sStart').addEventListener('change',updateGoalPreview);
   $('#sDate').addEventListener('change',updateGoalPreview);
   // 密码修改
   var pwSaveBtn=$('#sPwSave'); if(pwSaveBtn) pwSaveBtn.onclick=changePassword;
-  var pwInp=$('#sPassword'); if(pwInp) pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
+  var pwInp=$('#sPassword'); if(pwInp){
+    pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
+    pwInp.addEventListener('input',function(){ $('#sPwMsg').textContent=''; });
+  }
+  // 超管密码修改
+  var apwSaveBtn=$('#sAdminPwSave'); if(apwSaveBtn) apwSaveBtn.onclick=changeAdminPassword;
+  var apwInp=$('#sAdminPw'); if(apwInp){
+    apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changeAdminPassword(); });
+    apwInp.addEventListener('input',function(){ $('#sAdminPwMsg').textContent=''; });
+  }
   // 成员管理
   const addMemberBtn=$('#mAddMember'); if(addMemberBtn) addMemberBtn.onclick=addMember;
   const mNewInp=$('#mNewMember'); if(mNewInp) mNewInp.addEventListener('keydown',e=>{ if(e.key==='Enter') addMember(); });
@@ -1090,17 +1240,33 @@ function wire(){
   document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{
     if(e.target===o){ o.classList.remove('on'); if(o.id==='loginOverlay') closeLogin(); }
   }));
+  // Escape 键关闭当前打开的 overlay（关最上层的），或关闭下拉
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){
+      // 1. 优先关闭下拉
+      if(!$('#ddPanel').hidden){ closeDD(); return; }
+      // 2. 关闭最上层 overlay
+      const all=document.querySelectorAll('.overlay.on');
+      const topOv=all[all.length-1];
+      if(topOv){
+        topOv.classList.remove('on');
+        if(topOv.id==='loginOverlay') closeLogin();
+      }
+      closeDoc();
+    }
+  });
+
+  // 成员下拉交互
+  const ddTrg=$('#ddTrigger');
+  if(ddTrg) ddTrg.onclick=function(e){ e.stopPropagation(); toggleDD(); };
+  // 点击下拉外部关闭
+  document.addEventListener('click',function(e){
+    if(!$('#ddPanel').hidden && !e.target.closest('.dd-wrap')) closeDD();
+  });
 
   $('#fDate').onchange=async e=>{ curFilterDate=e.target.value||todayStr(); await loadDay(curFilterDate); renderReport(); };
   $('#fMember').onchange=e=>{ curFilterMember=e.target.value; renderReport(); };
-  $('#fClear').onclick=async()=>{ curFilterDate=todayStr(); curFilterMember=''; $('#fDate').value=todayStr(); $('#fMember').value=''; await loadDay(curFilterDate); renderReport(); };
-
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){
-    closeDoc();
-    const ovLogin=$('#loginOverlay');
-    document.querySelectorAll('.overlay.on').forEach(o=>o.classList.remove('on'));
-    if(ovLogin && ovLogin.classList.contains('on')){} else { closeLogin(); }
-  } });
+  $('#fClear').onclick=async()=>{ curFilterDate=todayStr(); curFilterMember=''; $('#fDate').value=todayStr(); $('#fMember').value=''; $('#ddLabel').textContent='全部成员'; highlightDDSelected(''); await loadDay(curFilterDate); renderReport(); };
 }
 function ripple(e){
   const btn=e.currentTarget; const c=document.createElement('span'); c.className='ripple';

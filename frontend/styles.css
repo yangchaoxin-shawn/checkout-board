@@ -218,6 +218,17 @@
     border-radius:11px;padding:8px 11px;font-size:13px;color:var(--muted);box-shadow:var(--shadow-sm)}
   .filters select,.filters input[type=date]{background:transparent;border:none;color:var(--text);font-size:13.5px;font-weight:600;outline:none}
   .filters input[type=date]{color-scheme:light}
+  /* 自定义下拉 */
+  .dd-wrap{position:relative}
+  .dd-trigger{display:flex;align-items:center;gap:8px;background:transparent;border:none;color:var(--text);font-size:13.5px;font-weight:600;padding:0;cursor:pointer;min-width:90px}
+  .dd-trigger:focus-visible{outline:2px solid var(--brand);outline-offset:2px;border-radius:4px}
+  .dd-arrow{fill:var(--muted);margin-left:auto;transition:transform .15s}
+  .dd-trigger.open .dd-arrow{transform:rotate(180deg);fill:var(--brand)}
+  .dd-panel{position:absolute;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--border);border-radius:9px;box-shadow:var(--shadow-lg);padding:3px;z-index:50;max-height:260px;overflow-y:auto;animation:dd-in .15s ease-out;min-width:max-content}
+  @keyframes dd-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  .dd-list{list-style:none;padding:0;margin:0;min-width:96px}
+  .dd-list li{padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;color:var(--text);font-weight:600;transition:.12s;line-height:1.3;white-space:nowrap}
+  .dd-list li:hover,.dd-list li.sel{background:var(--brand-soft);color:var(--brand)}
   .filters .clear{color:var(--brand);font-size:12.5px;padding:8px 10px;font-weight:700;border:1px solid var(--border);border-radius:11px;background:#fff}
   .filters .clear:hover{background:var(--brand-soft)}
 
@@ -270,9 +281,9 @@
     color:var(--muted);font-weight:600;font-size:13px;transition:.14s;min-height:40px}
   .chips button:hover{border-color:var(--muted-2)}
   .chips button.sel{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
-  .field input[type=text],.field input[type=date],.field textarea{width:100%;background:var(--bg-2);border:1.5px solid var(--border);border-radius:12px;
+  .field input[type=text],.field input[type=password],.field input[type=date],.field textarea{width:100%;background:var(--bg-2);border:1.5px solid var(--border);border-radius:12px;
     padding:13px 14px;color:var(--text);font-size:16px;outline:none;transition:.14s;color-scheme:light}
-  .field input[type=text]:focus,.field input[type=date]:focus,.field textarea:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 4px var(--brand-soft)}
+  .field input[type=text]:focus,.field input[type=password]:focus,.field input[type=date]:focus,.field textarea:focus{border-color:var(--brand);background:#fff;box-shadow:0 0 0 4px var(--brand-soft)}
   .field textarea{resize:vertical;min-height:66px;line-height:1.5}
   .modal .actions{display:flex;gap:10px;margin-top:26px}
   .btn.solid-go{flex:1;background:linear-gradient(120deg,var(--brand),#5A78FF 60%,var(--brand-2));color:#fff;font-weight:800;
@@ -282,6 +293,9 @@
   .btn.cancel:hover{background:var(--bg-2)}
   .err{color:var(--danger);font-size:12.5px;margin-top:6px;display:none;font-weight:600}
   .err.show{display:block}
+  /* 超管验证弹窗 */
+  #adminPwInput{text-align:center;letter-spacing:4px;font-size:18px}
+  #adminPwOverlay .modal{max-width:420px}
 
   /* login */
   .avatar-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}

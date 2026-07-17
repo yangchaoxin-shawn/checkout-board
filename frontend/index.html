@@ -47,7 +47,8 @@
     <div class="g-sub">请输入进入密码</div>
     <input id="gateInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="new-password"
            data-form-type="other" data-1p-ignore data-lpignore="true" data-bwignore
-           autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="进入密码">
+           autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="进入密码"
+           readonly onfocus="this.removeAttribute('readonly');this.value='';">
     <button id="gateGo">进 入</button>
     <div id="gateErr">密码不正确，请重试</div>
   </div>
@@ -198,7 +199,16 @@
     <div class="section-title">团队战报</div>
     <div class="filters">
       <div class="fld">📅 <input type="date" id="fDate"></div>
-      <div class="fld">👥 <select id="fMember"><option value="">全部成员</option></select></div>
+      <div class="fld dd-wrap">👥
+        <select id="fMember" style="display:none" aria-hidden="true"><option value="">全部成员</option></select>
+        <button type="button" class="dd-trigger" id="ddTrigger" aria-haspopup="listbox" aria-expanded="false">
+          <span id="ddLabel">全部成员</span>
+          <svg class="dd-arrow" viewBox="0 0 12 8" width="10" height="7" aria-hidden="true"><path d="M6 8L0 0h12L6 8z"/></svg>
+        </button>
+        <div class="dd-panel" id="ddPanel" role="listbox" hidden>
+          <ul class="dd-list" id="ddList"></ul>
+        </div>
+      </div>
       <button class="clear" id="fClear">今天</button>
     </div>
   </div>
@@ -302,6 +312,15 @@
       </div>
       <div id="sPwMsg" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
     </div>
+    <div class="field" style="margin-top:10px">
+      <label>修改超管密码</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="sAdminPw" placeholder="输入新超管密码" maxlength="20" style="flex:1"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <button class="btn ghost" id="sAdminPwSave" style="min-height:44px;white-space:nowrap">🔑 修改</button>
+      </div>
+      <div id="sAdminPwMsg" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
+    </div>
     <div class="actions">
       <button class="btn cancel" data-close>取消</button>
       <button class="btn solid-go" id="sSave">保存目标</button>
@@ -332,6 +351,23 @@
   </div>
 </div>
 
+<!-- ADMIN PASSWORD OVERLAY -->
+<div class="overlay" id="adminPwOverlay">
+  <div class="modal" style="max-width:420px">
+    <h2>🔐 超管验证</h2>
+    <div class="sub">请输入超管密码以执行此操作。</div>
+    <div class="field">
+      <input type="password" id="adminPwInput" placeholder="超管密码" maxlength="20"
+             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      <div id="adminPwErr" class="err">密码不正确</div>
+    </div>
+    <div class="actions">
+      <button class="btn cancel" data-close>取消</button>
+      <button class="btn solid-go" id="adminPwGo">🔓 验证</button>
+    </div>
+  </div>
+</div>
+
 <div class="mobile-cta" id="mobileCta">
   <button class="go" id="mobileGo">🦈 提交今日战果</button>
 </div>
@@ -348,7 +384,7 @@
 <div class="toast" id="toast"></div>
 
 <div style="text-align:center;padding:24px 0 12px;font-size:12px;color:var(--ink-400, #7B8DA6);border-top:1px solid var(--line-light, rgba(10,26,47,0.10))">
-  v1.0
+  v1.2
 </div>
 
 <script src="config.js?v=1.0"></script>

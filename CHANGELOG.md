@@ -90,6 +90,34 @@
 - 新增 `PROJECT_WISDOM.md`（设计原则）、`ENGINEERING_CHECKLIST.md`（检查清单）、`VIBE_CODING_RETROSPECTIVE.md`（复盘）
 - 引入 Git + Conventional Commits + 分支策略
 
+## v1.2 (2026-07-17) — 超管身份强化 + UI 一致
+
+### 安全加固
+
+- **超管二次验证**：超管密码与门禁密码独立存储，`POST /api/auth/admin` 独立验证接口
+- **打开设置/管理成员/修改密码前**，需先输入超管密码，验证状态存 sessionStorage，关闭页面自动失效
+- **修改门禁密码后安全退出**：清空登录态（me=null）回到门禁页重新输入新密码
+- **修改超管密码后清空验证标记**：sessionStorage 标记立即失效
+
+### UX 修复
+
+- 修复 `closeLogin()` 未调用 `updateSettingsBtn()` 导致的按钮残留
+- 修复 `changePassword()` 后 UI 未立即刷新为访客态
+- 新增 Escape 键关闭 Overlay 时正确走 `closeLogin()` 路径
+- 新增全局 Escape 监听，支持多层 overlay 叠放时只关闭最顶层
+- 门禁页 input 浏览器自动填充修复（readonly + onfocus 清空）
+- 提示文案（sPwMsg/sAdminPwMsg）用户输入时自动清除
+
+### UI 统一（方案 A）
+
+- 超管验证弹窗：去掉内联 style，统一使用 `.field` 主题，modal 宽度 380→420px
+- 成员过滤器下拉：浏览器原生 `<select>` 改为自定义 div 组件（圆角/阴影/hover 高亮/滑入动画）
+- 修复 `adminPwErr` 被 `.err { display:none }` 吞掉的隐藏 bug
+
+### Git
+
+- 分支 `iter/v1.2`，共 11 个 commit
+
 ---
 
 ## 关键交付物
@@ -107,3 +135,4 @@
 - 外部依赖：0（纯 Python 标准库 + 零前端框架）
 - E2E 测试：31/31 PASS
 - 跨平台：Linux 生产 / Windows WSL / macOS 本地
+- 版本：v1.2（iter/v1.2 → main）
