@@ -199,7 +199,16 @@
     <div class="section-title">团队战报</div>
     <div class="filters">
       <div class="fld">📅 <input type="date" id="fDate"></div>
-      <div class="fld">👥 <select id="fMember"><option value="">全部成员</option></select></div>
+      <div class="fld dd-wrap">👥
+        <select id="fMember" style="display:none" aria-hidden="true"><option value="">全部成员</option></select>
+        <button type="button" class="dd-trigger" id="ddTrigger" aria-haspopup="listbox" aria-expanded="false">
+          <span id="ddLabel">全部成员</span>
+          <svg class="dd-arrow" viewBox="0 0 12 8" width="10" height="7" aria-hidden="true"><path d="M6 8L0 0h12L6 8z"/></svg>
+        </button>
+        <div class="dd-panel" id="ddPanel" role="listbox" hidden>
+          <ul class="dd-list" id="ddList"></ul>
+        </div>
+      </div>
       <button class="clear" id="fClear">今天</button>
     </div>
   </div>

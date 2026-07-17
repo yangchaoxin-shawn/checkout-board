@@ -642,9 +642,57 @@ async function renderReport(){
 }
 function fmtTime(ts){ const d=new Date(ts); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function fillMemberFilter(){
-  const sel=$('#fMember'); const cur=sel.value;
-  sel.innerHTML='<option value="">全部成员</option>'+roster.map(r=>`<option value="${esc(r.name)}">${r.avatar||''} ${esc(r.name)}</option>`).join('');
-  sel.value=cur;
+  const list=$('#ddList');
+  if(!list) return;
+  const cur=(typeof curFilterMember!=='undefined')?curFilterMember:'';
+  list.innerHTML='';
+  // 全部成员
+  const allLi=document.createElement('li');
+  allLi.dataset.value='';
+  allLi.textContent='全部成员';
+  allLi.onclick=function(){ selectMemberFilter(''); };
+  list.appendChild(allLi);
+  // 各成员
+  roster.forEach(r=>{
+    const li=document.createElement('li');
+    li.dataset.value=r.name;
+    const av=document.createElement('span');
+    av.className='av';
+    av.textContent=r.avatar||r.name.slice(0,1);
+    const txt=document.createElement('span');
+    txt.textContent=r.name;
+    li.appendChild(av); li.appendChild(txt);
+    li.onclick=function(){ selectMemberFilter(r.name); };
+    list.appendChild(li);
+  });
+  // 同步当前选中态
+  highlightDDSelected(cur);
+  // 同步 trigger label
+  const lbl=$('#ddLabel');
+  if(lbl) lbl.textContent=cur||'全部成员';
+}
+function highlightDDSelected(value){
+  const items=document.querySelectorAll('#ddList li');
+  items.forEach(li=>{
+    li.classList.toggle('sel', li.dataset.value===value);
+  });
+}
+function selectMemberFilter(value){
+  curFilterMember=value;
+  $('#fMember').value=value;  // 保持原 select 同步，便于兼容代码读取
+  $('#ddLabel').textContent=value||'全部成员';
+  highlightDDSelected(value);
+  closeDD();
+  renderReport();
+}
+function toggleDD(){
+  const panel=$('#ddPanel'), trg=$('#ddTrigger');
+  if(panel.hidden){ panel.hidden=false; trg.classList.add('open'); trg.setAttribute('aria-expanded','true'); }
+  else closeDD();
+}
+function closeDD(){
+  const panel=$('#ddPanel'), trg=$('#ddTrigger');
+  if(panel){ panel.hidden=true; trg.classList.remove('open'); trg.setAttribute('aria-expanded','false'); }
 }
 
 /* ============ login ============ */
@@ -1197,28 +1245,33 @@ function wire(){
   document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{
     if(e.target===o){ o.classList.remove('on'); if(o.id==='loginOverlay') closeLogin(); }
   }));
-  // Escape 键关闭当前打开的 overlay（关最上层的）
+  // Escape 键关闭当前打开的 overlay（关最上层的），或关闭下拉
   document.addEventListener('keydown',function(e){
     if(e.key==='Escape'){
+      // 1. 优先关闭下拉
+      if(!$('#ddPanel').hidden){ closeDD(); return; }
+      // 2. 关闭最上层 overlay
       const all=document.querySelectorAll('.overlay.on');
       const topOv=all[all.length-1];
       if(topOv){
         topOv.classList.remove('on');
         if(topOv.id==='loginOverlay') closeLogin();
       }
+      closeDoc();
     }
+  });
+
+  // 成员下拉交互
+  const ddTrg=$('#ddTrigger');
+  if(ddTrg) ddTrg.onclick=function(e){ e.stopPropagation(); toggleDD(); };
+  // 点击下拉外部关闭
+  document.addEventListener('click',function(e){
+    if(!$('#ddPanel').hidden && !e.target.closest('.dd-wrap')) closeDD();
   });
 
   $('#fDate').onchange=async e=>{ curFilterDate=e.target.value||todayStr(); await loadDay(curFilterDate); renderReport(); };
   $('#fMember').onchange=e=>{ curFilterMember=e.target.value; renderReport(); };
-  $('#fClear').onclick=async()=>{ curFilterDate=todayStr(); curFilterMember=''; $('#fDate').value=todayStr(); $('#fMember').value=''; await loadDay(curFilterDate); renderReport(); };
-
-  document.addEventListener('keydown',e=>{ if(e.key==='Escape'){
-    closeDoc();
-    const ovLogin=$('#loginOverlay');
-    document.querySelectorAll('.overlay.on').forEach(o=>o.classList.remove('on'));
-    if(ovLogin && ovLogin.classList.contains('on')){} else { closeLogin(); }
-  } });
+  $('#fClear').onclick=async()=>{ curFilterDate=todayStr(); curFilterMember=''; $('#fDate').value=todayStr(); $('#fMember').value=''; $('#ddLabel').textContent='全部成员'; highlightDDSelected(''); await loadDay(curFilterDate); renderReport(); };
 }
 function ripple(e){
   const btn=e.currentTarget; const c=document.createElement('span'); c.className='ripple';
