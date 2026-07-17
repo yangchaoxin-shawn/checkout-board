@@ -97,7 +97,7 @@ def main():
 
     DevHandler.api_only = args.api_only
 
-    server = http.server.HTTPServer((args.host, args.port), DevHandler)
+    server = http.server.ThreadingHTTPServer((args.host, args.port), DevHandler)
     display_host = "localhost" if args.host in ("0.0.0.0", "") else args.host
     mode = "纯 API（生产模式）" if args.api_only else "本地开发（含静态文件）"
     print(f"[checkin] 服务运行在 http://{display_host}:{args.port}  [{mode}]")
