@@ -47,7 +47,8 @@
     <div class="g-sub">请输入进入密码</div>
     <input id="gateInput" type="password" inputmode="numeric" placeholder="••••" autocomplete="new-password"
            data-form-type="other" data-1p-ignore data-lpignore="true" data-bwignore
-           autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="进入密码">
+           autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="进入密码"
+           readonly onfocus="this.removeAttribute('readonly');this.value='';">
     <button id="gateGo">进 入</button>
     <div id="gateErr">密码不正确，请重试</div>
   </div>

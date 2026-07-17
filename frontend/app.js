@@ -22,7 +22,7 @@ function gateRemember(){
     localStorage.setItem(KEY_EXP, String(Date.now()+7*86400000)); // 7 天免门禁
   }catch(e){}
 }
-function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.focus();}catch(e){}},60); }
+function gateOpen(){ gateOv.classList.remove('gate-hide'); document.body.style.overflow='hidden'; setTimeout(function(){try{gateInp.value='';gateInp.focus();}catch(e){}},60); }
 function gatePass(){ gateOv.classList.add('gate-hide'); document.body.style.overflow=''; }
 // 向服务端验证密码并获取 Token。返回 {ok, reason}，reason 为 'wrong_pw' 或 'unreachable'
 async function gateServerAuth(pw){
@@ -1162,10 +1162,16 @@ function wire(){
   $('#sDate').addEventListener('change',updateGoalPreview);
   // 密码修改
   var pwSaveBtn=$('#sPwSave'); if(pwSaveBtn) pwSaveBtn.onclick=changePassword;
-  var pwInp=$('#sPassword'); if(pwInp) pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
+  var pwInp=$('#sPassword'); if(pwInp){
+    pwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changePassword(); });
+    pwInp.addEventListener('input',function(){ $('#sPwMsg').textContent=''; });
+  }
   // 超管密码修改
   var apwSaveBtn=$('#sAdminPwSave'); if(apwSaveBtn) apwSaveBtn.onclick=changeAdminPassword;
-  var apwInp=$('#sAdminPw'); if(apwInp) apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changeAdminPassword(); });
+  var apwInp=$('#sAdminPw'); if(apwInp){
+    apwInp.addEventListener('keydown',function(e){ if(e.key==='Enter') changeAdminPassword(); });
+    apwInp.addEventListener('input',function(){ $('#sAdminPwMsg').textContent=''; });
+  }
   // 成员管理
   const addMemberBtn=$('#mAddMember'); if(addMemberBtn) addMemberBtn.onclick=addMember;
   const mNewInp=$('#mNewMember'); if(mNewInp) mNewInp.addEventListener('keydown',e=>{ if(e.key==='Enter') addMember(); });
