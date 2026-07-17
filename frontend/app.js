@@ -133,7 +133,23 @@ async function syncFallbackData(){
   if(!serverOnline || BACKEND_MODE!=='server') return;
   if(!SYNC_ENABLED) return;
   var token=getStoredToken();
-  // 收集待同步的 key（延迟扫描，避免每次全量遍历）
+  // Token 有效性检查：空或无效时标记状态，不静默回退
+  if(!token){
+    updateConnBar();
+    return;
+  }
+  try{
+    var tr=await fetch(SERVER_URL+'/api/auth/check', {headers:{'Authorization':'Bearer '+token}});
+    var td=await tr.json();
+    if(!td.ok){
+      console.warn('[sync] token expired, sync deferred');
+      updateConnBar();
+      return;
+    }
+  }catch(e){
+    console.warn('[sync] token check failed', e.message);
+  }
+  // 收集待同步的 key
   var pending=[];
   for(var i=0; i<localStorage.length; i++){
     var k=localStorage.key(i);
@@ -144,30 +160,59 @@ async function syncFallbackData(){
   for(var pi=0; pi<pending.length; pi++){
     var k=pending[pi];
     var meta=syncMeta[k]||{retries:0, lastTry:0};
-    // 指数退避：重试间隔递增
     if(meta.lastTry && now-meta.lastTry < BACKOFF_MS[Math.min(meta.retries, BACKOFF_MS.length-1)]) continue;
     var realKey=k.slice(LS_FALLBACK_PREFIX.length);
+    var isDayKey=realKey.startsWith('day:');
     try{
       var v=JSON.parse(localStorage.getItem(k));
-      var r=await fetch(SERVER_URL+'/api/data', {
-        method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
-        body:JSON.stringify({key:realKey, value:v})
-      });
-      if(r.ok){
-        localStorage.removeItem(k);
-        delete syncMeta[k];
-        syncMetaDirty=true;
-        synced++;
-      }else if(r.status===409){
-        // 服务端已有相同数据（幂等冲突），本地丢弃
-        localStorage.removeItem(k);
-        delete syncMeta[k];
-        syncMetaDirty=true;
-        synced++;
+      if(isDayKey && Array.isArray(v)){
+        // day 数组 → 逐条通过 /api/checkin 推送（保证幂等+原子+counts 更新）
+        var allOk=true;
+        for(var vi=0; vi<v.length; vi++){
+          try{
+            var cr=await fetch(SERVER_URL+'/api/checkin', {
+              method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+              body:JSON.stringify({item:v[vi]})
+            });
+            var cd=await cr.json();
+            if(!cd.ok && !cd.dup) allOk=false;
+          }catch(e2){
+            console.error('[sync] day item push failed', e2);
+            allOk=false;
+          }
+          if(!allOk) break;
+        }
+        if(allOk){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else{
+          syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+          syncMetaDirty=true;
+          skipped++;
+        }
       }else{
-        syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
-        syncMetaDirty=true;
-        skipped++;
+        // 非 day 数组 → 正常走 /api/data
+        var r=await fetch(SERVER_URL+'/api/data', {
+          method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+          body:JSON.stringify({key:realKey, value:v})
+        });
+        if(r.ok){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else if(r.status===409){
+          localStorage.removeItem(k);
+          delete syncMeta[k];
+          syncMetaDirty=true;
+          synced++;
+        }else{
+          syncMeta[k]={retries:(meta.retries||0)+1, lastTry:now};
+          syncMetaDirty=true;
+          skipped++;
+        }
       }
     }catch(e){
       console.error('[sync] fallback push failed', e);
@@ -176,13 +221,13 @@ async function syncFallbackData(){
       skipped++;
     }
   }
-  // 持久化 syncMeta（避免页面刷新丢失重试状态）
   if(syncMetaDirty){
     try{ localStorage.setItem(SYNC_META_KEY, JSON.stringify(syncMeta)); }catch(e){ console.error('[sync] persist meta failed', e); }
     syncMetaDirty=false;
   }
   if(synced>0 && skipped===0) updateSyncDot('green');
   else if(skipped>0) updateSyncDot('yellow');
+  updateConnBar();
 }
 // 从 localStorage 恢复待同步状态
 try{ syncMeta=JSON.parse(localStorage.getItem(SYNC_META_KEY))||{}; }catch(e){ syncMeta={}; }
@@ -325,18 +370,32 @@ const S = {
   list:(prefix,shared)=> shared ? SHARED.list(prefix) : Promise.resolve([])
 };
 // 追加进共享数组键，按 id 合并以降低并发覆盖
+/* ============ 数据操作（含本地锁）============ */
+var appendLocks={};  // key 级别本地锁：防止并发 appendById/removeById 读-改-写覆盖
 async function appendById(key, item){
-  let arr = (await S.get(key,true)) || [];
-  const i = arr.findIndex(x=>x.id===item.id);
-  if(i>=0) arr[i]=item; else arr.push(item);
-  await S.set(key, arr, true);
-  return arr;
+  while(appendLocks[key]) await new Promise(function(r){ setTimeout(r, 50); });
+  appendLocks[key]=true;
+  try{
+    let arr = (await S.get(key,true)) || [];
+    const i = arr.findIndex(x=>x.id===item.id);
+    if(i>=0) arr[i]=item; else arr.push(item);
+    await S.set(key, arr, true);
+    return arr;
+  }finally{
+    appendLocks[key]=false;
+  }
 }
 async function removeById(key, id){
-  let arr = (await S.get(key,true)) || [];
-  arr = arr.filter(x=>x.id!==id);
-  await S.set(key, arr, true);
-  return arr;
+  while(appendLocks[key]) await new Promise(function(r){ setTimeout(r, 50); });
+  appendLocks[key]=true;
+  try{
+    let arr = (await S.get(key,true)) || [];
+    arr = arr.filter(x=>x.id!==id);
+    await S.set(key, arr, true);
+    return arr;
+  }finally{
+    appendLocks[key]=false;
+  }
 }
 
 /* ============ helpers ============ */
@@ -455,8 +514,8 @@ function updateConnBar(){
   const cb=$('#connBar'); if(!cb) return;
   if(BACKEND_MODE==='server'){
     if(serverOnline){
-      // 在线且有待同步数据（token 可能失效）
       var pendingItems=0, pendingDays=0;
+      // 统计在线 pending 数据
       for(var i=0;i<localStorage.length;i++){
         var k=localStorage.key(i);
         if(k && k.startsWith(LS_FALLBACK_PREFIX)){
@@ -466,8 +525,15 @@ function updateConnBar(){
         }
       }
       if(pendingItems>0){
-        cb.className='connbar warn';
-        cb.textContent='🟡 已连接服务端，但 '+pendingItems+' 次本地数据（'+pendingDays+' 天）正在同步中…';
+        // 检查 token 是否有效
+        var tmpToken=getStoredToken();
+        if(!tmpToken){
+          cb.className='connbar warn';
+          cb.textContent='🟡 已连接服务端，但登录状态已过期 · 请重新进入门禁';
+        }else{
+          cb.className='connbar warn';
+          cb.textContent='🟡 已连接服务端，但 '+pendingItems+' 次本地数据（'+pendingDays+' 天）正在同步中…';
+        }
       }else{
         cb.className='connbar ok'; cb.textContent='🟢 已连接团队服务器 · 数据持久化 · 全员实时同步';
       }
