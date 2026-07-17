@@ -133,7 +133,6 @@ async function syncFallbackData(){
   if(!serverOnline || BACKEND_MODE!=='server') return;
   if(!SYNC_ENABLED) return;
   var token=getStoredToken();
-  if(!token) return;
   // 收集待同步的 key（延迟扫描，避免每次全量遍历）
   var pending=[];
   for(var i=0; i<localStorage.length; i++){
@@ -456,16 +455,36 @@ function updateConnBar(){
   const cb=$('#connBar'); if(!cb) return;
   if(BACKEND_MODE==='server'){
     if(serverOnline){
-      cb.className='connbar ok'; cb.textContent='🟢 已连接团队服务器 · 数据持久化 · 全员实时同步';
+      // 在线且有待同步数据（token 可能失效）
+      var pendingItems=0, pendingDays=0;
+      for(var i=0;i<localStorage.length;i++){
+        var k=localStorage.key(i);
+        if(k && k.startsWith(LS_FALLBACK_PREFIX)){
+          pendingDays++;
+          try{ var arr=JSON.parse(localStorage.getItem(k)); if(Array.isArray(arr)) pendingItems+=arr.length; else pendingItems++; }
+          catch(e){ pendingItems++; }
+        }
+      }
+      if(pendingItems>0){
+        cb.className='connbar warn';
+        cb.textContent='🟡 已连接服务端，但 '+pendingItems+' 次本地数据（'+pendingDays+' 天）正在同步中…';
+      }else{
+        cb.className='connbar ok'; cb.textContent='🟢 已连接团队服务器 · 数据持久化 · 全员实时同步';
+      }
     }else{
-      // 检查是否有未同步的本地兜底数据
-      let pending=0;
-      for(let i=0;i<localStorage.length;i++){
-        if(localStorage.key(i).startsWith(LS_FALLBACK_PREFIX)) pending++;
+      // 离线统计
+      var pendingItems2=0, pendingDays2=0;
+      for(var i2=0;i2<localStorage.length;i2++){
+        var k2=localStorage.key(i2);
+        if(k2 && k2.startsWith(LS_FALLBACK_PREFIX)){
+          pendingDays2++;
+          try{ var arr2=JSON.parse(localStorage.getItem(k2)); if(Array.isArray(arr2)) pendingItems2+=arr2.length; else pendingItems2++; }
+          catch(e){ pendingItems2++; }
+        }
       }
       cb.className='connbar warn';
-      cb.textContent = pending
-        ? '🟡 服务器离线 · '+pending+' 条打卡已暂存本地，恢复后自动同步'
+      cb.textContent = pendingItems2>0
+        ? '🟡 服务器离线 · '+pendingItems2+' 次打卡待同步（共 '+pendingDays2+' 天），恢复后自动同步'
         : '🟡 服务器离线 · 数据暂存本地，恢复后自动同步';
     }
   }else if(BACKEND_MODE==='feishu'){ cb.className='connbar ok'; cb.textContent='🟢 已连接飞书多维表格 · 全员实时同步'; }
