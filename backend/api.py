@@ -134,7 +134,7 @@ def generate_token() -> str:
 def verify_token(token: str) -> bool:
     try:
         ts_str, h = token.split(".")
-        if int(time.time()) - int(ts_str) > 259200:  # 3 天
+        if int(time.time()) - int(ts_str) > 432000:  # 5 天（门禁 7 天，短 2 天安全边界）
             return False
         expected = hashlib.sha256(f"{SECRET}:{ts_str}".encode()).hexdigest()[:16]
         return h == expected
